@@ -59,6 +59,20 @@ table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nu
 th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 500; font-size: 12px; }
+.muted { color: var(--muted); font-size: 13px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border); margin-left: 4px; }
+.dot.on { background: var(--up); }
+.auto-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 12px; }
+.auto-actions { display: flex; gap: 8px; }
+.auto-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.auto-form .wide { grid-column: 1 / -1; }
+.auto-form .check { flex-direction: row; align-items: center; gap: 6px; align-self: end; }
+.auto-form .check input { width: auto; }
+.auto-save { display: flex; gap: 12px; align-items: center; }
+.lvl { font-size: 12px; font-weight: 600; }
+.lvl-TRADE { color: var(--accent); } .lvl-WARN, .lvl-ERROR { color: var(--down); } .lvl-SKIP, .lvl-INFO { color: var(--muted); }
+#autoLog th, #autoLog td { text-align: left; }
+#autoLog td:last-child { white-space: normal; width: 100%; }
 .hidden { display: none !important; }
 @media (max-width: 1000px) {
   main { grid-template-columns: 1fr; }

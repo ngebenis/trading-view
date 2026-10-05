@@ -1,12 +1,13 @@
 """Server API + UI. Jalankan: uvicorn app.main:app --reload"""
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .autotrader import AutoTrader
 from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType, PaperBroker,
                       PluangBroker, Side, StockbitBroker)
 from .config import Settings, settings as default_settings
@@ -28,10 +29,21 @@ class OrderRequest(BaseModel):
 
 
 def create_app(settings: Settings = default_settings, provider=None) -> FastAPI:
-    app = FastAPI(title="IDX Trading View", version="0.1.0")
     provider = provider or get_provider(settings.market_data_provider)
     paper = PaperBroker(settings.data_dir / "paper_account.json", settings.paper_starting_cash,
                         settings.buy_fee_pct, settings.sell_fee_pct)
+    autotrader = AutoTrader(paper, provider, settings.data_dir / "autotrader.json", settings.max_position_pct)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        if autotrader.config.enabled:  # lanjutkan bila sebelumnya aktif
+            autotrader.start()
+        yield
+        if autotrader.running:
+            autotrader._stop.set()
+
+    app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
+    app.state.autotrader = autotrader
     brokers: dict[str, Broker] = {b.name: b for b in (paper, StockbitBroker(), PluangBroker())}
 
     def get_broker(name: str) -> Broker:
@@ -146,7 +158,36 @@ def create_app(settings: Settings = default_settings, provider=None) -> FastAPI:
     @app.post("/api/paper/reset")
     def reset_paper():
         paper.reset()
+        autotrader.last_trade_at.clear()
         return paper.account({})
+
+    # ---- auto-trading (khusus akun simulasi) ---------------------------
+    @app.get("/api/autotrader")
+    def autotrader_status():
+        return autotrader.status()
+
+    @app.put("/api/autotrader/config")
+    def autotrader_config(data: dict = Body(...)):
+        try:
+            autotrader.update_config(data)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+        return autotrader.status()
+
+    @app.post("/api/autotrader/start")
+    def autotrader_start():
+        autotrader.start()
+        return autotrader.status()
+
+    @app.post("/api/autotrader/stop")
+    def autotrader_stop():
+        autotrader.stop()
+        return autotrader.status()
+
+    @app.post("/api/autotrader/run-once")
+    def autotrader_run_once():
+        autotrader.run_cycle()
+        return autotrader.status()
 
     @app.get("/api/tick")
     def tick(price: float):

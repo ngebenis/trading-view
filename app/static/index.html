@@ -75,12 +75,46 @@
     <div class="tabs">
       <button class="tab active" data-tab="portfolio">Portofolio</button>
       <button class="tab" data-tab="orders">Riwayat Order</button>
+      <button class="tab" data-tab="auto">Auto-Trading <span id="autoDot" class="dot"></span></button>
       <button id="resetPaper" class="link">Reset akun simulasi</button>
     </div>
     <div id="summary" class="summary"></div>
     <div class="table-wrap">
       <table id="portfolioTable"></table>
       <table id="ordersTable" class="hidden"></table>
+    </div>
+    <div id="autoPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Auto-trading (akun simulasi)</b>
+          <div id="autoStatus" class="muted"></div>
+        </div>
+        <div class="auto-actions">
+          <button id="autoRunOnce">Jalankan 1 siklus</button>
+          <button id="autoToggle" class="primary buy">Mulai</button>
+        </div>
+      </div>
+      <form id="autoForm" class="auto-form">
+        <label class="wide">Simbol yang dipantau (pisahkan koma)
+          <input name="symbols" placeholder="BBCA, BBRI, TLKM">
+        </label>
+        <label>Interval (detik)<input name="interval_seconds" type="number" min="30"></label>
+        <label>Ukuran posisi (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
+        <label>Maks. posisi<input name="max_positions" type="number" min="1"></label>
+        <label>Beli bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Jual bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label>Stop-loss (%)<input name="stop_loss_pct" type="number" step="0.5" min="0"></label>
+        <label>Take-profit (%)<input name="take_profit_pct" type="number" step="0.5" min="0"></label>
+        <label>Cooldown (menit)<input name="cooldown_minutes" type="number" min="0"></label>
+        <label class="check"><input name="market_hours_only" type="checkbox"> Hanya saat jam bursa</label>
+        <div class="wide auto-save">
+          <button class="primary">Simpan pengaturan</button>
+          <span id="autoMsg" class="msg"></span>
+        </div>
+      </form>
+      <p class="disclaimer">Hanya berjalan di akun Paper Trading. Sinyal memakai candle harian; stop-loss/take-profit (0 = nonaktif) diperiksa setiap siklus.</p>
+      <h2>Log keputusan</h2>
+      <div class="table-wrap"><table id="autoLog"></table></div>
     </div>
   </section>
 

@@ -197,10 +197,10 @@ async function loadAccount() {
         : `<tr><td colspan="6" style="text-align:left;color:var(--muted)">Belum ada posisi.</td></tr>`);
     pt.querySelectorAll("tr[data-s] a").forEach((a) => a.onclick = (e) => { e.preventDefault(); loadSymbol(a.closest("tr").dataset.s); });
     const orders = await api(`/api/orders?broker=${state.broker}`);
-    ot.innerHTML = `<tr><th>Waktu</th><th>Kode</th><th>Aksi</th><th>Tipe</th><th>Lot</th><th>Harga</th><th>Fee</th><th>Status</th><th></th></tr>` +
+    ot.innerHTML = `<tr><th>Waktu</th><th>Kode</th><th>Aksi</th><th>Tipe</th><th>Lot</th><th>Harga</th><th>Fee</th><th>Sumber</th><th>Status</th><th></th></tr>` +
       orders.map((o) => `<tr><td>${new Date(o.created_at * 1000).toLocaleString("id-ID")}</td><td>${o.symbol}</td>
         <td class="${o.side === "BUY" ? "up" : "down"}">${o.side}</td><td>${o.order_type}</td><td>${o.lots}</td>
-        <td>${fmt(o.fill_price ?? o.limit_price)}</td><td>${fmt(o.fee)}</td><td title="${o.message}">${o.status}</td>
+        <td>${fmt(o.fill_price ?? o.limit_price)}</td><td>${fmt(o.fee)}</td><td>${o.source === "auto" ? "🤖 auto" : "manual"}</td><td title="${o.message}">${o.status}</td>
         <td>${o.status === "OPEN" ? `<button data-cancel="${o.id}">Batal</button>` : ""}</td></tr>`).join("");
     ot.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = async () => {
       await api(`/api/orders/${b.dataset.cancel}?broker=${state.broker}`, { method: "DELETE" }); loadAccount();
@@ -208,6 +208,59 @@ async function loadAccount() {
   } catch (e) {
     sum.innerHTML = `<div class="note">${e.message}</div>`; pt.innerHTML = ""; ot.innerHTML = "";
   }
+}
+
+// ---------- auto-trading ----------
+const escapeHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function fillAutoForm(cfg) {
+  const f = $("#autoForm");
+  for (const [k, v] of Object.entries(cfg)) {
+    const el = f.elements[k];
+    if (!el) continue;
+    if (el.type === "checkbox") el.checked = v;
+    else el.value = Array.isArray(v) ? v.join(", ") : v;
+  }
+}
+
+function renderAuto(st, fillForm = false) {
+  const prevRunning = state.autoRunning;
+  state.autoRunning = st.running;
+  if (fillForm) fillAutoForm(st.config);
+  $("#autoDot").classList.toggle("on", st.running);
+  $("#autoToggle").dataset.running = st.running ? "1" : "0";
+  $("#autoToggle").textContent = st.running ? "Hentikan" : "Mulai";
+  $("#autoToggle").className = "primary " + (st.running ? "sell" : "buy");
+  const t = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString("id-ID") : "—";
+  $("#autoStatus").textContent = (st.running ? "● Berjalan" : "○ Berhenti") +
+    ` · siklus terakhir ${t(st.last_run)}` + (st.next_run ? ` · berikutnya ±${t(st.next_run)}` : "") +
+    ` · ${st.config.symbols.length} simbol`;
+  $("#autoLog").innerHTML = `<tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Keterangan</th></tr>` +
+    (st.log.length ? st.log.map((l) => `<tr><td>${new Date(l.time * 1000).toLocaleString("id-ID")}</td>
+      <td class="lvl lvl-${l.level}">${l.level}</td><td>${escapeHtml(l.symbol)}</td><td>${escapeHtml(l.message)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="text-align:left;color:var(--muted)">Belum ada aktivitas.</td></tr>`);
+  if (prevRunning && st.log.some((l) => l.level === "TRADE")) loadAccount();
+}
+
+async function loadAuto(fillForm) {
+  try { renderAuto(await api("/api/autotrader"), fillForm); } catch { /* server belum siap */ }
+}
+
+async function saveAutoConfig(ev) {
+  ev.preventDefault();
+  const f = $("#autoForm"), msg = $("#autoMsg");
+  const num = (k) => Number(f.elements[k].value);
+  const body = {
+    symbols: f.elements.symbols.value.split(",").map(cleanSymbol).filter(Boolean),
+    interval_seconds: num("interval_seconds"), position_pct: num("position_pct"), max_positions: num("max_positions"),
+    min_buy_score: num("min_buy_score"), max_sell_score: num("max_sell_score"), stop_loss_pct: num("stop_loss_pct"),
+    take_profit_pct: num("take_profit_pct"), cooldown_minutes: num("cooldown_minutes"),
+    market_hours_only: f.elements.market_hours_only.checked,
+  };
+  try {
+    renderAuto(await api("/api/autotrader/config", { method: "PUT", body: JSON.stringify(body) }), true);
+    msg.className = "msg ok"; msg.textContent = "Tersimpan";
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
 }
 
 // ---------- init ----------
@@ -231,10 +284,28 @@ async function init() {
     document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
     $("#portfolioTable").classList.toggle("hidden", t.dataset.tab !== "portfolio");
     $("#ordersTable").classList.toggle("hidden", t.dataset.tab !== "orders");
+    $("#autoPane").classList.toggle("hidden", t.dataset.tab !== "auto");
+    $("#summary").classList.toggle("hidden", t.dataset.tab === "auto");
+    if (t.dataset.tab === "auto") loadAuto(true);
   });
+  $("#autoForm").onsubmit = saveAutoConfig;
+  $("#autoToggle").onclick = async () => {
+    const running = $("#autoToggle").dataset.running === "1";
+    if (!running && !confirm("Mulai auto-trading di akun simulasi?")) return;
+    renderAuto(await api(`/api/autotrader/${running ? "stop" : "start"}`, { method: "POST" }));
+    loadAccount();
+  };
+  $("#autoRunOnce").onclick = async () => {
+    $("#autoRunOnce").disabled = true;
+    try { renderAuto(await api("/api/autotrader/run-once", { method: "POST" })); loadAccount(); }
+    catch (e) { $("#autoMsg").className = "msg err"; $("#autoMsg").textContent = e.message; }
+    finally { $("#autoRunOnce").disabled = false; }
+  };
+  loadAuto(true);
   onBrokerChange();
   loadSymbol(state.symbol);
   setInterval(() => { refreshWatchPrices(); loadAccount(); }, 60_000);
+  setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
 }
 
 init();

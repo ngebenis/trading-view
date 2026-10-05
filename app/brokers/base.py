@@ -37,6 +37,7 @@ class Order:
     created_at: float = field(default_factory=time.time)
     filled_at: float | None = None
     message: str = ""
+    source: str = "manual"  # "manual" atau "auto"
 
     def to_dict(self) -> dict:
         d = asdict(self)

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .brokers import BrokerError, Order, OrderType, PaperBroker, Side
-from .idx_rules import LOT_SIZE, normalize_symbol, round_to_tick
+from .idx_rules import LOT_SIZE, normalize_symbol, reject_indices, round_to_tick
 from .market_data import MarketDataError
 from .strategy import analyze
 
@@ -52,6 +52,7 @@ class AutoTraderConfig:
     market_hours_only: bool = False
 
     def validate(self, max_position_pct: float) -> None:
+        reject_indices(self.symbols, "auto-trading")
         self.symbols = sorted({normalize_symbol(s) for s in self.symbols if s.strip()})
         errors = []
         if not self.symbols:

@@ -18,7 +18,7 @@ from math import sqrt
 
 from .autotrader import AutoTrader, AutoTraderConfig, WIB
 from .brokers import OrderStatus, PaperBroker, Side
-from .idx_rules import LOT_SIZE, normalize_symbol
+from .idx_rules import LOT_SIZE, normalize_symbol, reject_indices
 from .market_data import Candle, MarketDataError, Quote
 
 PERIOD_DAYS = {"6mo": 182, "1y": 365, "2y": 730, "5y": 1826}
@@ -134,6 +134,7 @@ def run_backtest(req: BacktestRequest, provider, base_config: AutoTraderConfig,
         raise ValueError("Eksekusi harus 'next_open' atau 'close'")
     if req.initial_cash < 1_000_000:
         raise ValueError("Modal awal minimal Rp1.000.000")
+    reject_indices(req.symbols, "backtest")
     symbols = sorted({normalize_symbol(s) for s in req.symbols if s.strip()})
     if not 1 <= len(symbols) <= MAX_SYMBOLS:
         raise ValueError(f"Jumlah simbol harus 1-{MAX_SYMBOLS}")

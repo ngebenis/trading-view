@@ -20,7 +20,17 @@ async function api(path, opts = {}) {
   return body;
 }
 
-function cleanSymbol(s) { return s.trim().toUpperCase().replace(/^IDX:/, "").replace(/\.JK$/, "").replace(/[^A-Z0-9]/g, ""); }
+// Indeks (tidak bisa diperdagangkan): kode aplikasi -> simbol TradingView. Sama dengan app/idx_rules.py.
+const INDICES = { IHSG: "COMPOSITE", LQ45: "LQ45" };
+const INDEX_ALIASES = { COMPOSITE: "IHSG", JKSE: "IHSG", JCI: "IHSG", JKLQ45: "LQ45" };
+const isIndex = (s) => s in INDICES;
+const tvSymbol = (s) => `IDX:${INDICES[s] ?? s}`;
+const fmtPrice = (p, sym) => fmt(p, isIndex(sym) ? 2 : 0);
+
+function cleanSymbol(s) {
+  const c = s.trim().toUpperCase().replace(/^IDX:/, "").replace(/\.JK$/, "").replace(/[^A-Z0-9]/g, "");
+  return INDEX_ALIASES[c] ?? c;
+}
 
 function tickSize(p) { return p < 200 ? 1 : p < 500 ? 2 : p < 2000 ? 5 : p < 5000 ? 10 : 25; }
 
@@ -33,7 +43,7 @@ function renderChart(symbol) {
   }
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
   new TradingView.widget({
-    container_id: "tvChart", autosize: true, symbol: `IDX:${symbol}`, interval: "D",
+    container_id: "tvChart", autosize: true, symbol: tvSymbol(symbol), interval: "D",
     timezone: "Asia/Jakarta", theme: dark ? "dark" : "light", style: "1", locale: "id",
     allow_symbol_change: false, studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies", "MAExp@tv-basicstudies"],
   });
@@ -47,15 +57,16 @@ async function loadSymbol(symbol) {
   localStorage.setItem("symbol", symbol);
   $("#qSymbol").textContent = symbol;
   $("#lnkStockbit").href = `https://stockbit.com/symbol/${symbol}`;
-  $("#lnkTradingView").href = `https://www.tradingview.com/symbols/IDX-${symbol}/`;
+  $("#lnkTradingView").href = `https://www.tradingview.com/symbols/${tvSymbol(symbol).replace(":", "-")}/`;
+  refreshOrderTicket();
   renderWatchlist();
   renderChart(symbol);
   $("#signal").textContent = "…"; $("#signal").className = "signal"; $("#reasons").innerHTML = "";
   try {
     const q = await api(`/api/quote/${symbol}`);
     state.price = q.price;
-    $("#qPrice").textContent = fmt(q.price);
-    $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmt(q.change)} (${fmt(q.change_pct, 2)}%)`;
+    $("#qPrice").textContent = fmtPrice(q.price, symbol);
+    $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmtPrice(q.change, symbol)} (${fmt(q.change_pct, 2)}%)`;
     $("#qChange").className = "q-change " + cls(q.change);
     if (!$("#limitPrice").value || $("#limitPrice").dataset.symbol !== symbol) {
       $("#limitPrice").value = q.price; $("#limitPrice").dataset.symbol = symbol;
@@ -101,10 +112,18 @@ async function refreshWatchPrices() {
     if (!el) return;
     try {
       const q = await api(`/api/quote/${s}`);
-      el.textContent = `${fmt(q.price)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
+      el.textContent = `${fmtPrice(q.price, s)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
       el.className = "wl-price " + cls(q.change_pct);
     } catch { el.textContent = "n/a"; }
   }));
+}
+
+async function refreshIhsgTicker() {
+  const el = $("#ihsgTicker");
+  try {
+    const q = await api("/api/quote/IHSG");
+    el.innerHTML = `IHSG <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
+  } catch { el.innerHTML = "IHSG <b>n/a</b>"; }
 }
 
 // ---------- order ticket ----------
@@ -126,7 +145,7 @@ function updateEstimate() {
     const t = tickSize(price);
     $("#tickHint").textContent = price % t === 0 ? `Fraksi harga: ${t}` : `⚠ Harus kelipatan ${t} (mis. ${Math.round(price / t) * t})`;
   }
-  if (!price || !lots) { $("#estimate").textContent = ""; return; }
+  if (!price || !lots || isIndex(state.symbol)) { $("#estimate").textContent = ""; return; }
   const value = price * lots * (state.config.lot_size || 100);
   const feePct = state.side === "BUY" ? state.config.buy_fee_pct : state.config.sell_fee_pct;
   const fee = value * (feePct || 0) / 100;
@@ -166,16 +185,27 @@ async function loadBrokers() {
   $("#brokerSelect").value = state.broker;
 }
 
-function onBrokerChange() {
-  state.broker = $("#brokerSelect").value;
+// Form order nonaktif untuk indeks dan broker yang belum tersedia.
+function refreshOrderTicket() {
   const b = state.brokers.find((x) => x.name === state.broker);
   const note = $("#brokerNote");
-  if (b && !b.available) {
+  if (isIndex(state.symbol)) {
+    note.innerHTML = `<b>${state.symbol}</b> adalah indeks pasar — bisa dipantau & dianalisis, tapi tidak bisa dibeli/dijual.`;
+    note.classList.remove("hidden");
+  } else if (b && !b.available) {
     const url = (b.app_url || "").replace("{symbol}", state.symbol);
     note.innerHTML = `${b.note}<br><a href="${url}" target="_blank" rel="noopener">Buka ${b.display_name} ↗</a>`;
     note.classList.remove("hidden");
   } else note.classList.add("hidden");
-  $("#submitOrder").disabled = b && !b.available;
+  const disabled = isIndex(state.symbol) || Boolean(b && !b.available);
+  $("#orderForm").querySelectorAll("button, input, select").forEach((el) => { el.disabled = disabled; });
+  updateEstimate();
+}
+
+function onBrokerChange() {
+  state.broker = $("#brokerSelect").value;
+  const b = state.brokers.find((x) => x.name === state.broker);
+  refreshOrderTicket();
   $("#resetPaper").classList.toggle("hidden", state.broker !== "paper");
   loadAccount();
 }
@@ -309,7 +339,9 @@ async function init() {
   loadAuto(true);
   onBrokerChange();
   loadSymbol(state.symbol);
-  setInterval(() => { refreshWatchPrices(); loadAccount(); }, 60_000);
+  $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
+  refreshIhsgTicker();
+  setInterval(() => { refreshWatchPrices(); refreshIhsgTicker(); loadAccount(); }, 60_000);
   setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
 }
 

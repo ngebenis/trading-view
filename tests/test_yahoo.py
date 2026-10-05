@@ -71,3 +71,15 @@ def test_not_found_and_rate_limit_fallback():
 
     with pytest.raises(MarketDataError, match="rate limit"):
         provider(lambda r: httpx.Response(429)).quote("BBCA")
+
+
+def test_ihsg_uses_jkse_symbol():
+    seen = []
+
+    def handler(r):
+        seen.append(r.url.path)
+        return httpx.Response(200, json=chart({1: 7100.5, 2: 7150.25}, 7150.25, day(2, 16)))
+
+    q = provider(handler).quote("IHSG")
+    assert seen[0] in ("/v8/finance/chart/^JKSE", "/v8/finance/chart/%5EJKSE")
+    assert q.symbol == "IHSG" and q.price == 7150.25 and q.prev_close == 7100.5

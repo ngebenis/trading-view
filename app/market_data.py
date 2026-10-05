@@ -15,7 +15,7 @@ from dataclasses import dataclass, asdict
 
 import httpx
 
-from .idx_rules import normalize_symbol, round_to_tick, yahoo_symbol
+from .idx_rules import is_index, normalize_symbol, round_to_tick, yahoo_symbol
 
 
 @dataclass
@@ -82,7 +82,7 @@ class YahooProvider:
         except httpx.HTTPError as exc:
             raise MarketDataError(f"Gagal menghubungi Yahoo Finance untuk {sym}: {type(exc).__name__}") from exc
         if resp.status_code == 404:
-            raise MarketDataError(f"Kode saham {sym} tidak ditemukan di Yahoo Finance ({yahoo_symbol(sym)})")
+            raise MarketDataError(f"Kode {sym} tidak ditemukan di Yahoo Finance ({yahoo_symbol(sym)})")
         if resp.status_code == 429:
             raise MarketDataError("Yahoo Finance membatasi permintaan (rate limit), coba lagi beberapa saat")
         try:
@@ -91,7 +91,7 @@ class YahooProvider:
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             raise MarketDataError(f"Gagal mengambil data {sym}: {exc}") from exc
         if not result:
-            raise MarketDataError(f"Kode saham {sym} tidak ditemukan di Yahoo Finance")
+            raise MarketDataError(f"Kode {sym} tidak ditemukan di Yahoo Finance")
         self._cache[key] = (time.time(), result[0])
         return result[0]
 
@@ -135,7 +135,9 @@ class DemoProvider:
         seed = int(hashlib.sha256(sym.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
         days = {"1mo": 22, "3mo": 66, "6mo": 130, "1y": 250, "2y": 500, "5y": 1250, "10y": 2500}.get(range_, 130)
-        price = rng.choice([150, 450, 1200, 3500, 8000])
+        index = is_index(sym)
+        price = 7000.0 if index else rng.choice([150, 450, 1200, 3500, 8000])
+        rnd = (lambda x: round(x, 2)) if index else round_to_tick
         today = int(time.time()) // 86400 * 86400
         out = []
         for i in range(days):
@@ -145,8 +147,7 @@ class DemoProvider:
             low = min(price, close) * (1 - abs(rng.gauss(0, 0.006)))
             out.append(Candle(
                 today - (days - i) * 86400,
-                round_to_tick(price), round_to_tick(high), round_to_tick(low),
-                round_to_tick(close), rng.randint(1_000_000, 50_000_000),
+                rnd(price), rnd(high), rnd(low), rnd(close), rng.randint(1_000_000, 50_000_000),
             ))
             price = close
         return out

@@ -12,7 +12,8 @@ from .backtest import PERIOD_DAYS, BacktestRequest, run_backtest
 from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType, PaperBroker,
                       PluangBroker, Side, StockbitBroker)
 from .config import Settings, settings as default_settings
-from .idx_rules import LOT_SIZE, normalize_symbol, round_to_tick, tick_size, tradingview_symbol
+from .idx_rules import (LOT_SIZE, is_index, normalize_symbol, round_to_tick, stockbit_url, tick_size,
+                        tradingview_symbol, tradingview_url)
 from .market_data import MarketDataError, get_provider
 from .notifier import NotifierError, SignalWatcher
 from .strategy import analyze
@@ -99,7 +100,10 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         except MarketDataError as exc:
             raise HTTPException(502, str(exc))
         q["tradingview_symbol"] = tradingview_symbol(symbol)
-        q["tick_size"] = tick_size(q["price"])
+        q["tradingview_url"] = tradingview_url(symbol)
+        q["stockbit_url"] = stockbit_url(symbol)
+        q["is_index"] = is_index(symbol)
+        q["tick_size"] = None if q["is_index"] else tick_size(q["price"])
         return q
 
     @app.get("/api/candles/{symbol}")
@@ -143,6 +147,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     @app.post("/api/orders")
     def place_order(req: OrderRequest):
         b = get_broker(req.broker)
+        if is_index(req.symbol):
+            raise HTTPException(400, f"{normalize_symbol(req.symbol)} adalah indeks dan tidak bisa dibeli/dijual")
         if b.is_live:
             if not settings.enable_live_trading:
                 raise HTTPException(403, "Live trading dinonaktifkan (set ENABLE_LIVE_TRADING=true).")

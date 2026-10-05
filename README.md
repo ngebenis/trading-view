@@ -4,6 +4,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 
 - 📈 Grafik interaktif **TradingView** (`IDX:<KODE>`) dengan RSI, MACD, EMA
 - 💹 Harga & histori dari Yahoo Finance (`<KODE>.JK`), atau data demo offline
+- 📉 Pantau **IHSG** & **LQ45**: ticker IHSG di header, grafik, sinyal teknikal & notifikasi Telegram
 - 🧠 Sinyal teknikal otomatis (RSI, EMA 12/26, MACD, Bollinger Band) → BELI / JUAL / TAHAN
 - 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
@@ -25,6 +26,22 @@ uvicorn app.main:app --reload
 Buka http://localhost:8000. Tanpa internet, set `MARKET_DATA_PROVIDER=demo` di `.env`.
 
 Test: `pytest`
+
+## 📉 Indeks IHSG & LQ45
+
+Ketik `IHSG` (atau `^JKSE`, `COMPOSITE`, `JCI`) / `LQ45` di kotak pencarian, atau klik ticker IHSG
+di header. Indeks bisa dibuka di grafik TradingView (`IDX:COMPOSITE`, `IDX:LQ45`), dianalisis
+sinyalnya, dimasukkan ke watchlist, dan dipantau lewat notifikasi Telegram.
+
+Indeks **tidak bisa dibeli/dijual**, jadi form order dikunci, dan indeks ditolak di daftar
+auto-trading maupun backtest.
+
+| Indeks | Yahoo Finance | TradingView |
+|---|---|---|
+| IHSG | `^JKSE` | `IDX:COMPOSITE` |
+| LQ45 | `^JKLQ45` | `IDX:LQ45` |
+
+Indeks lain bisa ditambahkan di `INDICES` pada `app/idx_rules.py` (dan `app/static/app.js`).
 
 ## 🤖 Auto-trading (mode simulasi)
 

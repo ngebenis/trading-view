@@ -16,7 +16,7 @@ from pathlib import Path
 import httpx
 
 from .autotrader import WIB, is_idx_market_open, rupiah
-from .idx_rules import normalize_symbol
+from .idx_rules import is_index, normalize_symbol, stockbit_url, tradingview_url
 from .market_data import MarketDataError
 from .strategy import analyze
 
@@ -64,9 +64,14 @@ class TelegramClient:
 
 
 # ---- format pesan ----------------------------------------------------------
+def index_value(x: float) -> str:
+    """7123.456 -> '7.123,46' (format angka Indonesia, 2 desimal)."""
+    return f"{x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
 def _links(symbol: str) -> str:
-    return (f'<a href="https://www.tradingview.com/symbols/IDX-{symbol}/">TradingView</a> · '
-            f'<a href="https://stockbit.com/symbol/{symbol}">Stockbit</a>')
+    return (f'<a href="{tradingview_url(symbol)}">TradingView</a> · '
+            f'<a href="{stockbit_url(symbol)}">Stockbit</a>')
 
 
 def format_signal(symbol: str, action: str, analysis: dict, quote=None) -> str:
@@ -75,7 +80,10 @@ def format_signal(symbol: str, action: str, analysis: dict, quote=None) -> str:
     if quote is not None:
         sign = "+" if quote.change_pct >= 0 else ""
         pct = f"{quote.change_pct:.2f}".replace(".", ",")
-        lines.append(f"Harga: <b>{rupiah(quote.price)}</b> ({sign}{pct}%)")
+        if is_index(symbol):
+            lines.append(f"Nilai indeks: <b>{index_value(quote.price)}</b> ({sign}{pct}%)")
+        else:
+            lines.append(f"Harga: <b>{rupiah(quote.price)}</b> ({sign}{pct}%)")
     lines.append(f"Skor: <b>{analysis['score']:+d}</b>")
     lines += [f"• {html.escape(r)}" for r in analysis["reasons"]]
     lines += ["", _links(symbol), "<i>Sinyal otomatis, bukan rekomendasi investasi.</i>"]
@@ -247,7 +255,8 @@ class SignalWatcher:
                 label = "BELI" if action == "BUY" else "JUAL"
                 if ok:
                     self.last_action[sym] = action
-                    out.append(self._record(action, sym, f"Sinyal {label} skor {score:+d} @ {rupiah(quote.price)}", sent=True))
+                    at = index_value(quote.price) if is_index(sym) else rupiah(quote.price)
+                    out.append(self._record(action, sym, f"Sinyal {label} skor {score:+d} @ {at}", sent=True))
                 else:  # tidak dicatat sebagai terkirim -> dicoba lagi siklus berikutnya
                     out.append(self._record("ERROR", sym, f"Sinyal {label} gagal dikirim: {err}"))
             self._save()

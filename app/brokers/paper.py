@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..idx_rules import LOT_SIZE, is_valid_price, normalize_symbol, round_to_tick
+from ..idx_rules import LOT_SIZE, is_index, is_valid_price, normalize_symbol, round_to_tick
 from .base import Broker, BrokerError, Order, OrderStatus, OrderType, Side
 
 
@@ -89,6 +89,8 @@ class PaperBroker(Broker):
     def place_order(self, order: Order, market_price: float) -> Order:
         with self._lock:
             order.symbol = normalize_symbol(order.symbol)
+            if is_index(order.symbol):
+                return self._reject(order, f"{order.symbol} adalah indeks dan tidak bisa dibeli/dijual")
             if order.lots <= 0:
                 return self._reject(order, "Jumlah lot harus > 0")
             if order.order_type == OrderType.LIMIT:

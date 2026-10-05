@@ -77,6 +77,7 @@
       <button class="tab" data-tab="orders">Riwayat Order</button>
       <button class="tab" data-tab="auto">Auto-Trading <span id="autoDot" class="dot"></span></button>
       <button class="tab" data-tab="backtest">Backtest</button>
+      <button class="tab" data-tab="notif">Notifikasi <span id="notifDot" class="dot"></span></button>
       <button id="resetPaper" class="link">Reset akun simulasi</button>
     </div>
     <div id="summary" class="summary"></div>
@@ -116,6 +117,58 @@
       <p class="disclaimer">Hanya berjalan di akun Paper Trading. Sinyal memakai candle harian; stop-loss/take-profit (0 = nonaktif) diperiksa setiap siklus.</p>
       <h2>Log keputusan</h2>
       <div class="table-wrap"><table id="autoLog"></table></div>
+    </div>
+    <div id="notifPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Notifikasi sinyal ke Telegram</b>
+          <div id="notifStatus" class="muted"></div>
+        </div>
+        <div class="auto-actions">
+          <button id="notifTest" type="button">Kirim pesan uji</button>
+          <button id="notifRunOnce" type="button">Pindai sekarang</button>
+          <button id="notifToggle" type="button" class="primary buy">Mulai</button>
+        </div>
+      </div>
+      <details id="notifGuide" class="note guide">
+        <summary>Cara menyiapkan bot Telegram (± 2 menit)</summary>
+        <ol>
+          <li>Di Telegram, buka <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>, kirim <code>/newbot</code>, ikuti petunjuknya, lalu salin <b>token</b> yang diberikan.</li>
+          <li>Tempel token di bawah, klik <b>Simpan pengaturan</b>.</li>
+          <li>Buka bot baru Anda di Telegram dan kirim pesan apa saja (mis. <code>halo</code>). Untuk grup, tambahkan bot ke grup lalu kirim pesan di grup.</li>
+          <li>Klik <b>Cari chat ID</b>, pilih chat Anda, simpan, lalu klik <b>Kirim pesan uji</b>.</li>
+        </ol>
+      </details>
+      <form id="notifForm" class="auto-form">
+        <label class="wide-2">Bot token
+          <input name="bot_token" type="password" autocomplete="off" placeholder="123456789:AA...">
+          <small id="tokenHint"></small>
+        </label>
+        <label class="wide-2">Chat ID
+          <span class="inline">
+            <input name="chat_id" placeholder="mis. 123456789">
+            <button id="notifFindChat" type="button">Cari chat ID</button>
+          </span>
+          <small id="chatHint"></small>
+        </label>
+        <div id="chatList" class="wide chat-list hidden"></div>
+        <label class="wide">Saham yang dipantau (pisahkan koma)
+          <input name="symbols" placeholder="BBCA, BBRI, TLKM">
+        </label>
+        <label>Interval pemindaian (detik)<input name="interval_seconds" type="number" min="60"></label>
+        <label>Kirim BELI bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Kirim JUAL bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label class="check"><input name="market_hours_only" type="checkbox"> Hanya saat jam bursa</label>
+        <label class="check"><input name="notify_trades" type="checkbox"> Kirim juga transaksi bot auto-trading</label>
+        <div class="wide auto-save">
+          <button class="primary">Simpan pengaturan</button>
+          <button id="notifUseWatchlist" type="button">Pakai watchlist</button>
+          <span id="notifMsg" class="msg"></span>
+        </div>
+      </form>
+      <p class="disclaimer">Pesan dikirim saat sinyal <b>berubah</b> menjadi BELI atau JUAL — sinyal yang sama tidak dikirim ulang sampai mereda lalu muncul lagi. Sinyal memakai candle harian.</p>
+      <h2>Riwayat notifikasi</h2>
+      <div class="table-wrap"><table id="notifLog"></table></div>
     </div>
     <div id="backtestPane" class="hidden">
       <div class="auto-head">
@@ -185,5 +238,6 @@
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/backtest.js"></script>
+  <script src="/static/notifications.js"></script>
 </body>
 </html>

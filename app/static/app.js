@@ -287,7 +287,9 @@ async function init() {
     $("#ordersTable").classList.toggle("hidden", tab !== "orders");
     $("#autoPane").classList.toggle("hidden", tab !== "auto");
     $("#backtestPane").classList.toggle("hidden", tab !== "backtest");
-    $("#summary").classList.toggle("hidden", tab === "auto" || tab === "backtest");
+    $("#notifPane").classList.toggle("hidden", tab !== "notif");
+    $("#summary").classList.toggle("hidden", ["auto", "backtest", "notif"].includes(tab));
+    if (tab === "notif") window.initNotifications?.();
     if (tab === "backtest") window.initBacktest?.();
     if (t.dataset.tab === "auto") loadAuto(true);
   });

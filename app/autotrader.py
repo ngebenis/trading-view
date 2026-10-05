@@ -78,6 +78,7 @@ class AutoTrader:
         self.max_position_pct = max_position_pct
         self.clock = clock
         self.log: deque[dict] = deque(maxlen=300)
+        self.listeners: list = []  # dipanggil untuk setiap entri log baru (mis. notifikasi Telegram)
         self._seq = 0
         self.last_run: float | None = None
         self.last_trade_at: dict[str, float] = {}
@@ -141,7 +142,13 @@ class AutoTrader:
     # ---- logika trading ----------------------------------------------
     def _log(self, level: str, symbol: str, message: str, **extra) -> None:
         self._seq += 1
-        self.log.appendleft({"id": self._seq, "time": self.clock(), "level": level, "symbol": symbol, "message": message, **extra})
+        entry = {"id": self._seq, "time": self.clock(), "level": level, "symbol": symbol, "message": message, **extra}
+        self.log.appendleft(entry)
+        for listener in self.listeners:
+            try:
+                listener(entry)
+            except Exception:  # notifikasi gagal tidak boleh menghentikan trading
+                pass
 
     def _in_cooldown(self, symbol: str, now: float) -> bool:
         last = self.last_trade_at.get(symbol)

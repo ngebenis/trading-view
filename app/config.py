@@ -28,6 +28,8 @@ class Settings:
     sell_fee_pct: float = float(os.getenv("SELL_FEE_PCT", "0.25"))
     max_position_pct: float = float(os.getenv("MAX_POSITION_PCT", "20"))
     enable_live_trading: bool = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
 
 

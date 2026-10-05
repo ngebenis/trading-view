@@ -8,6 +8,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
 - 🤖 **Auto-trading berbasis sinyal** (khusus akun simulasi) dengan stop-loss, take-profit, cooldown & log keputusan
+- 🔔 **Notifikasi Telegram** saat muncul sinyal BELI/JUAL baru (dan saat bot auto-trading bertransaksi)
 - 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, vs beli & tahan
 - 🔌 Arsitektur **adapter broker**: Paper Trading (aktif), Stockbit & Pluang (lihat batasan di bawah)
 - 🛡️ Pengaman: batas nilai order per % ekuitas, live trading mati secara default + konfirmasi per order
@@ -54,6 +55,40 @@ Status berjalan & pengaturan disimpan di `data/autotrader.json`, jadi bot otomat
 setelah server di-restart. Order dari bot ditandai **🤖 auto** di riwayat order.
 Catatan: sinyal memakai candle harian, jadi biasanya hanya berubah sekali sehari;
 interval pendek terutama berguna untuk memantau stop-loss/take-profit.
+
+## 🔔 Notifikasi Telegram
+
+1. Di Telegram, chat [@BotFather](https://t.me/BotFather) → `/newbot` → salin **token**.
+2. Buka tab **Notifikasi**, tempel token, klik **Simpan pengaturan**.
+3. Kirim pesan apa saja ke bot Anda (untuk grup: tambahkan bot ke grup lalu kirim pesan di sana).
+4. Klik **Cari chat ID**, pilih chat Anda, lalu **Kirim pesan uji**.
+5. Atur saham yang dipantau, lalu klik **Mulai**.
+
+Token & chat ID juga bisa diisi lewat `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) — nilai `.env`
+lebih diutamakan. Token yang diisi lewat UI disimpan lokal di `data/notifications.json` (tidak
+di-commit) dan selalu disamarkan di API/UI.
+
+Cara kerja:
+- Setiap interval (default 15 menit) semua saham dipindai. Pesan dikirim saat sinyal **berubah**
+  menjadi BELI (skor ≥ batas beli) atau JUAL (skor ≤ batas jual). Sinyal yang sama tidak dikirim
+  ulang sampai mereda ke TAHAN lalu muncul lagi — jadi tidak spam. Status ini tersimpan, sehingga
+  restart server tidak memicu pesan ganda.
+- Bila pengiriman gagal (mis. internet putus), sinyal dicoba kirim lagi di pemindaian berikutnya.
+- Opsional: setiap transaksi bot auto-trading (beli/jual, stop-loss, take-profit) ikut dikirim.
+- Opsi "Hanya saat jam bursa" melewati pemindaian di luar jam perdagangan IDX.
+
+Contoh pesan:
+
+```
+🟢 SINYAL BELI — AAMB
+Harga: 450 (-1,75%)
+Skor: +3
+• RSI 56.6 netral
+• EMA12 golden cross EMA26
+• Histogram MACD berbalik positif
+TradingView · Stockbit
+Sinyal otomatis, bukan rekomendasi investasi.
+```
 
 ## 📊 Backtest
 
@@ -102,6 +137,7 @@ app/
   strategy.py        Skor & sinyal BELI/JUAL/TAHAN
   autotrader.py      Bot auto-trading (simulasi)
   backtest.py        Backtest bot dengan data historis
+  notifier.py        Notifikasi Telegram & pemantau sinyal
   brokers/
     base.py          Kontrak Broker & model Order
     paper.py         Simulasi paper trading (tersimpan di data/paper_account.json)
@@ -125,6 +161,10 @@ tests/               Unit & API test
 | GET | `/api/autotrader` | Status, pengaturan & log bot |
 | PUT | `/api/autotrader/config` | Ubah pengaturan bot |
 | POST | `/api/autotrader/start` · `/stop` · `/run-once` | Kendalikan bot |
+| GET | `/api/notifications` | Status, pengaturan & riwayat notifikasi |
+| PUT | `/api/notifications/config` | Ubah pengaturan (token, chat ID, saham, ambang skor) |
+| GET | `/api/notifications/chats` | Cari chat ID dari pesan terbaru ke bot |
+| POST | `/api/notifications/test` · `/start` · `/stop` · `/run-once` | Pesan uji & kendali pemantau |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) |
 
 > Disclaimer: sinyal dihasilkan otomatis dan bukan rekomendasi investasi. Data Yahoo untuk IDX

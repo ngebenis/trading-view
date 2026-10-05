@@ -44,7 +44,7 @@ def rsi(values: list[float], period: int = 14) -> Series:
 
     def _rsi(g: float, l: float) -> float:
         if l == 0:
-            return 100.0
+            return 100.0 if g > 0 else 50.0  # harga datar = netral
         return 100 - 100 / (1 + g / l)
 
     out[period] = _rsi(avg_gain, avg_loss)

@@ -22,6 +22,7 @@ def test_rsi_extremes():
     assert rsi(up)[-1] == 100.0
     down = list(reversed(up))
     assert rsi(down)[-1] == pytest.approx(0.0)
+    assert rsi([100.0] * 30)[-1] == 50.0  # harga datar = netral
 
 
 def test_macd_and_bollinger_lengths():

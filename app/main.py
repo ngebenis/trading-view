@@ -14,6 +14,7 @@ from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType,
 from .config import Settings, settings as default_settings
 from .idx_rules import LOT_SIZE, normalize_symbol, round_to_tick, tick_size, tradingview_symbol
 from .market_data import MarketDataError, get_provider
+from .notifier import NotifierError, SignalWatcher
 from .strategy import analyze
 
 STATIC = Path(__file__).parent / "static"
@@ -37,22 +38,32 @@ class OrderRequest(BaseModel):
     confirm_live: bool = False
 
 
-def create_app(settings: Settings = default_settings, provider=None) -> FastAPI:
+def create_app(settings: Settings = default_settings, provider=None, telegram_http=None) -> FastAPI:
     provider = provider or get_provider(settings.market_data_provider)
     paper = PaperBroker(settings.data_dir / "paper_account.json", settings.paper_starting_cash,
                         settings.buy_fee_pct, settings.sell_fee_pct)
     autotrader = AutoTrader(paper, provider, settings.data_dir / "autotrader.json", settings.max_position_pct)
+    watcher = SignalWatcher(provider, settings.data_dir / "notifications.json", settings.telegram_bot_token,
+                            settings.telegram_chat_id, http=telegram_http)
+    autotrader.listeners.append(watcher.on_autotrader_log)
 
     @asynccontextmanager
     async def lifespan(_app):
         if autotrader.config.enabled:  # lanjutkan bila sebelumnya aktif
             autotrader.start()
+        if watcher.config.enabled:
+            try:
+                watcher.start()
+            except NotifierError:
+                pass
         yield
         if autotrader.running:
             autotrader._stop.set()
+        watcher.shutdown()
 
     app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
     app.state.autotrader = autotrader
+    app.state.watcher = watcher
     brokers: dict[str, Broker] = {b.name: b for b in (paper, StockbitBroker(), PluangBroker())}
 
     def get_broker(name: str) -> Broker:
@@ -197,6 +208,51 @@ def create_app(settings: Settings = default_settings, provider=None) -> FastAPI:
     def autotrader_run_once():
         autotrader.run_cycle()
         return autotrader.status()
+
+    # ---- notifikasi Telegram -------------------------------------------
+    def notifier_call(fn):
+        try:
+            fn()
+        except NotifierError as exc:
+            raise HTTPException(400, str(exc))
+        return watcher.status()
+
+    @app.get("/api/notifications")
+    def notifications_status():
+        return watcher.status()
+
+    @app.put("/api/notifications/config")
+    def notifications_config(data: dict = Body(...)):
+        try:
+            watcher.update_config(data)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+        return watcher.status()
+
+    @app.post("/api/notifications/test")
+    def notifications_test():
+        return notifier_call(watcher.send_test)
+
+    @app.get("/api/notifications/chats")
+    def notifications_chats():
+        try:
+            return watcher.telegram().recent_chats()
+        except NotifierError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/notifications/start")
+    def notifications_start():
+        return notifier_call(watcher.start)
+
+    @app.post("/api/notifications/stop")
+    def notifications_stop():
+        return notifier_call(watcher.stop)
+
+    @app.post("/api/notifications/run-once")
+    def notifications_run_once():
+        if not watcher.status()["configured"]:
+            raise HTTPException(400, "Isi bot token dan chat ID Telegram terlebih dahulu")
+        return notifier_call(watcher.scan)
 
     # ---- backtest ------------------------------------------------------
     @app.post("/api/backtest")

@@ -50,30 +50,48 @@ class MarketDataError(Exception):
 
 
 class YahooProvider:
-    name = "yahoo"
-    _URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    """Endpoint chart Yahoo Finance (tidak resmi, tanpa API key)."""
 
-    def __init__(self, timeout: float = 10.0, cache_ttl: float = 30.0):
-        self._client = httpx.Client(timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+    name = "yahoo"
+    _HOSTS = ("https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com")
+    _PATH = "/v8/finance/chart/{symbol}"
+
+    def __init__(self, timeout: float = 10.0, cache_ttl: float = 30.0, client: httpx.Client | None = None):
+        self._client = client or httpx.Client(timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
         self._cache: dict[tuple, tuple[float, dict]] = {}
         self._ttl = cache_ttl
 
+    def _fetch(self, symbol: str, range_: str, interval: str) -> httpx.Response:
+        """Coba query1 lalu query2 bila kena rate limit / gangguan server."""
+        resp = None
+        for host in self._HOSTS:
+            resp = self._client.get(host + self._PATH.format(symbol=yahoo_symbol(symbol)),
+                                    params={"range": range_, "interval": interval})
+            if resp.status_code not in (429, 500, 502, 503, 504):
+                break
+        return resp
+
     def _chart(self, symbol: str, range_: str, interval: str) -> dict:
-        key = (symbol, range_, interval)
+        key = (normalize_symbol(symbol), range_, interval)
         hit = self._cache.get(key)
         if hit and time.time() - hit[0] < self._ttl:
             return hit[1]
+        sym = normalize_symbol(symbol)
         try:
-            resp = self._client.get(
-                self._URL.format(symbol=yahoo_symbol(symbol)),
-                params={"range": range_, "interval": interval},
-            )
+            resp = self._fetch(symbol, range_, interval)
+        except httpx.HTTPError as exc:
+            raise MarketDataError(f"Gagal menghubungi Yahoo Finance untuk {sym}: {type(exc).__name__}") from exc
+        if resp.status_code == 404:
+            raise MarketDataError(f"Kode saham {sym} tidak ditemukan di Yahoo Finance ({yahoo_symbol(sym)})")
+        if resp.status_code == 429:
+            raise MarketDataError("Yahoo Finance membatasi permintaan (rate limit), coba lagi beberapa saat")
+        try:
             resp.raise_for_status()
             result = resp.json()["chart"]["result"]
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            raise MarketDataError(f"Gagal mengambil data {symbol}: {exc}") from exc
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            raise MarketDataError(f"Gagal mengambil data {sym}: {exc}") from exc
         if not result:
-            raise MarketDataError(f"Simbol {symbol} tidak ditemukan")
+            raise MarketDataError(f"Kode saham {sym} tidak ditemukan di Yahoo Finance")
         self._cache[key] = (time.time(), result[0])
         return result[0]
 
@@ -81,7 +99,7 @@ class YahooProvider:
         data = self._chart(symbol, range_, interval)
         q = data["indicators"]["quote"][0]
         out = []
-        for i, ts in enumerate(data.get("timestamp", [])):
+        for i, ts in enumerate(data.get("timestamp") or []):
             o, h, l, c, v = (q[k][i] for k in ("open", "high", "low", "close", "volume"))
             if None in (o, h, l, c):
                 continue
@@ -89,9 +107,17 @@ class YahooProvider:
         return out
 
     def quote(self, symbol: str) -> Quote:
-        meta = self._chart(symbol, "5d", "1d")["meta"]
+        data = self._chart(symbol, "5d", "1d")
+        meta = data["meta"]
         price = meta["regularMarketPrice"]
-        prev = meta.get("chartPreviousClose") or meta.get("previousClose") or price
+        # Penutupan kemarin = close candle harian terakhir SEBELUM hari perdagangan saat ini.
+        # (meta.chartPreviousClose adalah close sebelum awal rentang 5 hari, bukan kemarin.)
+        tz_offset = meta.get("gmtoffset", 7 * 3600)
+        today = (meta.get("regularMarketTime", time.time()) + tz_offset) // 86400
+        closes = data["indicators"]["quote"][0]["close"]
+        prev = next((c for ts, c in reversed(list(zip(data.get("timestamp") or [], closes)))
+                     if c is not None and (ts + tz_offset) // 86400 < today), None)
+        prev = prev or meta.get("previousClose") or price
         change = price - prev
         return Quote(
             normalize_symbol(symbol), price, prev, change,

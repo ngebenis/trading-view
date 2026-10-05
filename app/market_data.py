@@ -108,7 +108,7 @@ class DemoProvider:
         sym = normalize_symbol(symbol)
         seed = int(hashlib.sha256(sym.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
-        days = {"1mo": 22, "3mo": 66, "6mo": 130, "1y": 250, "2y": 500}.get(range_, 130)
+        days = {"1mo": 22, "3mo": 66, "6mo": 130, "1y": 250, "2y": 500, "5y": 1250, "10y": 2500}.get(range_, 130)
         price = rng.choice([150, 450, 1200, 3500, 8000])
         today = int(time.time()) // 86400 * 86400
         out = []

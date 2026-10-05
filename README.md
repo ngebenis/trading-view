@@ -8,6 +8,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
 - 🤖 **Auto-trading berbasis sinyal** (khusus akun simulasi) dengan stop-loss, take-profit, cooldown & log keputusan
+- 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, vs beli & tahan
 - 🔌 Arsitektur **adapter broker**: Paper Trading (aktif), Stockbit & Pluang (lihat batasan di bawah)
 - 🛡️ Pengaman: batas nilai order per % ekuitas, live trading mati secara default + konfirmasi per order
 
@@ -54,6 +55,26 @@ setelah server di-restart. Order dari bot ditandai **🤖 auto** di riwayat orde
 Catatan: sinyal memakai candle harian, jadi biasanya hanya berubah sekali sehari;
 interval pendek terutama berguna untuk memantau stop-loss/take-profit.
 
+## 📊 Backtest
+
+Buka tab **Backtest**, pilih saham, periode (6 bulan – 5 tahun), modal awal, dan parameter strategi
+(atau klik **Salin pengaturan auto-trading**), lalu **Jalankan backtest**.
+
+Backtest memutar ulang **kode auto-trader yang sama** hari demi hari di akun simulasi terpisah
+(akun Paper Trading Anda tidak tersentuh), sehingga ukuran posisi, lot, fraksi harga, fee,
+stop-loss/take-profit, cooldown, dan maks. posisi diperlakukan persis seperti bot live.
+
+- **Tanpa look-ahead:** sinyal dihitung dari candle s.d. penutupan hari *d*; order dieksekusi
+  di harga **open hari berikutnya** (default). Opsi "close hari sinyal" tersedia tapi lebih optimistis.
+- Data diambil lebih panjang dari periode agar indikator sudah siap di hari pertama.
+- **Hasil:** total return, CAGR, max drawdown, Sharpe, win rate, profit factor, fee, persentase
+  waktu berinvestasi, grafik ekuitas vs **beli & tahan** (bobot sama, tanpa fee), rincian per saham
+  dan per transaksi.
+- Jika hasilnya cocok, klik **Terapkan ke auto-trading** untuk memakai simbol & parameter yang sama.
+
+Batasan: memakai candle harian, mengabaikan slippage, likuiditas/volume, ARA/ARB, dan antrean order.
+Hasil masa lalu tidak menjamin hasil masa depan. Waktu proses ±1–2 detik per saham untuk 2 tahun data.
+
 ## ⚠️ Tentang eksekusi order di Stockbit / Pluang
 
 Stockbit dan Pluang **tidak menyediakan API trading publik resmi** untuk nasabah ritel.
@@ -80,6 +101,7 @@ app/
   indicators.py      SMA, EMA, RSI, MACD, Bollinger
   strategy.py        Skor & sinyal BELI/JUAL/TAHAN
   autotrader.py      Bot auto-trading (simulasi)
+  backtest.py        Backtest bot dengan data historis
   brokers/
     base.py          Kontrak Broker & model Order
     paper.py         Simulasi paper trading (tersimpan di data/paper_account.json)
@@ -103,6 +125,7 @@ tests/               Unit & API test
 | GET | `/api/autotrader` | Status, pengaturan & log bot |
 | PUT | `/api/autotrader/config` | Ubah pengaturan bot |
 | POST | `/api/autotrader/start` · `/stop` · `/run-once` | Kendalikan bot |
+| POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) |
 
 > Disclaimer: sinyal dihasilkan otomatis dan bukan rekomendasi investasi. Data Yahoo untuk IDX
 > tertunda ±10–15 menit. Gunakan dengan risiko sendiri.

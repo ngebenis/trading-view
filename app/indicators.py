@@ -72,14 +72,18 @@ def macd(values: list[float], fast: int = 12, slow: int = 26, signal: int = 9):
 
 
 def bollinger(values: list[float], period: int = 20, mult: float = 2.0):
-    """Mengembalikan (upper, middle, lower)."""
+    """Mengembalikan (upper, middle, lower). Standar deviasi populasi, dihitung bergulir O(n)."""
     mid = sma(values, period)
     upper: Series = [None] * len(values)
     lower: Series = [None] * len(values)
-    for i in range(period - 1, len(values)):
-        window = values[i - period + 1 : i + 1]
-        mean = mid[i]
-        std = sqrt(sum((x - mean) ** 2 for x in window) / period)
-        upper[i] = mean + mult * std
-        lower[i] = mean - mult * std
+    sum_sq = 0.0
+    for i, v in enumerate(values):
+        sum_sq += v * v
+        if i >= period:
+            sum_sq -= values[i - period] ** 2
+        if i >= period - 1:
+            mean = mid[i]
+            std = sqrt(max(sum_sq / period - mean * mean, 0.0))
+            upper[i] = mean + mult * std
+            lower[i] = mean - mult * std
     return upper, mid, lower

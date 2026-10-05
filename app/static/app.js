@@ -282,10 +282,13 @@ async function init() {
   $("#resetPaper").onclick = async () => { if (confirm("Reset akun simulasi ke saldo awal?")) { await api("/api/paper/reset", { method: "POST" }); loadAccount(); } };
   document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
     document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
-    $("#portfolioTable").classList.toggle("hidden", t.dataset.tab !== "portfolio");
-    $("#ordersTable").classList.toggle("hidden", t.dataset.tab !== "orders");
-    $("#autoPane").classList.toggle("hidden", t.dataset.tab !== "auto");
-    $("#summary").classList.toggle("hidden", t.dataset.tab === "auto");
+    const tab = t.dataset.tab;
+    $("#portfolioTable").classList.toggle("hidden", tab !== "portfolio");
+    $("#ordersTable").classList.toggle("hidden", tab !== "orders");
+    $("#autoPane").classList.toggle("hidden", tab !== "auto");
+    $("#backtestPane").classList.toggle("hidden", tab !== "backtest");
+    $("#summary").classList.toggle("hidden", tab === "auto" || tab === "backtest");
+    if (tab === "backtest") window.initBacktest?.();
     if (t.dataset.tab === "auto") loadAuto(true);
   });
   $("#autoForm").onsubmit = saveAutoConfig;

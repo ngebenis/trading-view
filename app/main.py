@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .autotrader import AutoTrader
+from .backtest import PERIOD_DAYS, BacktestRequest, run_backtest
 from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType, PaperBroker,
                       PluangBroker, Side, StockbitBroker)
 from .config import Settings, settings as default_settings
@@ -16,6 +17,14 @@ from .market_data import MarketDataError, get_provider
 from .strategy import analyze
 
 STATIC = Path(__file__).parent / "static"
+
+
+class BacktestBody(BaseModel):
+    symbols: list[str] | None = None  # default: simbol auto-trader
+    period: str = "1y"
+    initial_cash: float | None = None  # default: PAPER_STARTING_CASH
+    execution: str = "next_open"
+    strategy: dict = Field(default_factory=dict)  # override pengaturan auto-trader
 
 
 class OrderRequest(BaseModel):
@@ -188,6 +197,26 @@ def create_app(settings: Settings = default_settings, provider=None) -> FastAPI:
     def autotrader_run_once():
         autotrader.run_cycle()
         return autotrader.status()
+
+    # ---- backtest ------------------------------------------------------
+    @app.post("/api/backtest")
+    def backtest(body: BacktestBody):
+        req = BacktestRequest(
+            symbols=body.symbols or autotrader.config.symbols,
+            period=body.period,
+            initial_cash=body.initial_cash or settings.paper_starting_cash,
+            execution=body.execution,
+            strategy=body.strategy,
+        )
+        try:
+            return run_backtest(req, provider, autotrader.config, settings.buy_fee_pct,
+                                settings.sell_fee_pct, settings.max_position_pct)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/backtest/periods")
+    def backtest_periods():
+        return list(PERIOD_DAYS)
 
     @app.get("/api/tick")
     def tick(price: float):

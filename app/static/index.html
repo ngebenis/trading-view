@@ -76,6 +76,7 @@
       <button class="tab active" data-tab="portfolio">Portofolio</button>
       <button class="tab" data-tab="orders">Riwayat Order</button>
       <button class="tab" data-tab="auto">Auto-Trading <span id="autoDot" class="dot"></span></button>
+      <button class="tab" data-tab="backtest">Backtest</button>
       <button id="resetPaper" class="link">Reset akun simulasi</button>
     </div>
     <div id="summary" class="summary"></div>
@@ -116,9 +117,73 @@
       <h2>Log keputusan</h2>
       <div class="table-wrap"><table id="autoLog"></table></div>
     </div>
+    <div id="backtestPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Backtest strategi auto-trading</b>
+          <div class="muted">Memutar ulang bot yang sama di atas data historis harian, lengkap dengan fee, lot, stop-loss/take-profit &amp; cooldown.</div>
+        </div>
+        <div class="auto-actions">
+          <button id="btCopyAuto" type="button">Salin pengaturan auto-trading</button>
+        </div>
+      </div>
+      <form id="btForm" class="auto-form">
+        <label class="wide">Simbol (pisahkan koma, maks. 30)
+          <input name="symbols" placeholder="BBCA, BBRI, TLKM">
+        </label>
+        <label>Periode
+          <select name="period">
+            <option value="6mo">6 bulan</option><option value="1y" selected>1 tahun</option>
+            <option value="2y">2 tahun</option><option value="5y">5 tahun</option>
+          </select>
+        </label>
+        <label>Modal awal (Rp)<input name="initial_cash" type="number" min="1000000" step="1000000"></label>
+        <label>Eksekusi order
+          <select name="execution">
+            <option value="next_open">Open hari berikutnya (realistis)</option>
+            <option value="close">Close hari sinyal (optimistis)</option>
+          </select>
+        </label>
+        <label>Ukuran posisi (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
+        <label>Maks. posisi<input name="max_positions" type="number" min="1"></label>
+        <label>Beli bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Jual bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label>Stop-loss (%)<input name="stop_loss_pct" type="number" step="0.5" min="0"></label>
+        <label>Take-profit (%)<input name="take_profit_pct" type="number" step="0.5" min="0"></label>
+        <label>Cooldown (menit)<input name="cooldown_minutes" type="number" min="0"></label>
+        <div class="wide auto-save">
+          <button id="btRun" class="primary">Jalankan backtest</button>
+          <button id="btApply" type="button" class="hidden">Terapkan ke auto-trading</button>
+          <span id="btMsg" class="msg"></span>
+        </div>
+      </form>
+
+      <div id="btResult" class="hidden">
+        <div id="btRange" class="muted bt-range"></div>
+        <div id="btTiles" class="tiles"></div>
+        <div class="bt-chart-card">
+          <div class="bt-chart-head">
+            <b>Ekuitas</b>
+            <div class="legend">
+              <span><i class="sw s1"></i>Strategi</span>
+              <span><i class="sw s2"></i>Beli &amp; tahan (bobot sama, tanpa fee)</span>
+            </div>
+          </div>
+          <div id="btChart" class="bt-chart" role="img" aria-label="Grafik ekuitas strategi dibanding beli dan tahan"></div>
+          <div id="btTip" class="bt-tip hidden"></div>
+        </div>
+        <div id="btWarnings" class="note hidden"></div>
+        <h2>Per saham</h2>
+        <div class="table-wrap"><table id="btSymbols"></table></div>
+        <h2>Transaksi <span id="btTradeCount" class="muted"></span></h2>
+        <div class="table-wrap bt-trades"><table id="btTrades"></table></div>
+        <p class="disclaimer">Hasil masa lalu tidak menjamin hasil masa depan. Backtest mengabaikan slippage, likuiditas, ARA/ARB, dan antrean order.</p>
+      </div>
+    </div>
   </section>
 
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/backtest.js"></script>
 </body>
 </html>

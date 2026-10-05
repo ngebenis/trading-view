@@ -13,8 +13,10 @@ class PaperBroker(Broker):
     display_name = "Paper Trading (Simulasi)"
     is_live = False
 
-    def __init__(self, path: Path, starting_cash: float, buy_fee_pct: float, sell_fee_pct: float):
+    def __init__(self, path: Path | None, starting_cash: float, buy_fee_pct: float, sell_fee_pct: float,
+                 clock=time.time):
         self.path = path
+        self.clock = clock
         self.starting_cash = starting_cash
         self.buy_fee = buy_fee_pct / 100
         self.sell_fee = sell_fee_pct / 100
@@ -23,7 +25,7 @@ class PaperBroker(Broker):
 
     # ---- persistence -------------------------------------------------
     def _load(self) -> None:
-        if self.path.exists():
+        if self.path is not None and self.path.exists():
             raw = json.loads(self.path.read_text())
             self.cash = raw["cash"]
             self.positions = raw["positions"]
@@ -32,6 +34,8 @@ class PaperBroker(Broker):
             self.reset()
 
     def _save(self) -> None:
+        if self.path is None:  # mode in-memory (dipakai backtest)
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps({
             "cash": self.cash,
@@ -72,7 +76,8 @@ class PaperBroker(Broker):
                 del self.positions[order.symbol]
             self.cash += value - fee
         order.fill_price, order.fee = price, round(fee, 2)
-        order.status, order.filled_at = OrderStatus.FILLED, time.time()
+        order.status = OrderStatus.FILLED
+        order.filled_at = self.clock()
 
     def _reject(self, order: Order, msg: str) -> Order:
         order.status, order.message = OrderStatus.REJECTED, msg

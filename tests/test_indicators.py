@@ -43,3 +43,13 @@ def test_analyze_signals():
     wave = [1000 + 200 * math.sin(i / 8) for i in range(60)]
     assert analyze(wave[:42])["action"] == "BUY"
     assert analyze(wave[:52])["action"] == "SELL"
+
+
+def test_bollinger_matches_naive_std():
+    from statistics import pstdev
+    closes = [1000 + 37 * math.sin(i / 3) + i for i in range(80)]
+    upper, mid, lower = bollinger(closes, 20, 2.0)
+    for i in (19, 50, 79):
+        sd = pstdev(closes[i - 19 : i + 1])
+        assert upper[i] == pytest.approx(mid[i] + 2 * sd, rel=1e-9)
+        assert lower[i] == pytest.approx(mid[i] - 2 * sd, rel=1e-9)

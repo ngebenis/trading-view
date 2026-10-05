@@ -71,7 +71,7 @@ class AutoTraderConfig:
 
 
 class AutoTrader:
-    def __init__(self, broker: PaperBroker, provider, path: Path, max_position_pct: float, clock=time.time):
+    def __init__(self, broker: PaperBroker, provider, path: Path | None, max_position_pct: float, clock=time.time):
         self.broker = broker
         self.provider = provider
         self.path = path
@@ -88,13 +88,15 @@ class AutoTrader:
 
     # ---- konfigurasi -------------------------------------------------
     def _load(self) -> AutoTraderConfig:
-        if self.path.exists():
+        if self.path is not None and self.path.exists():
             raw = json.loads(self.path.read_text())
             known = {f.name for f in fields(AutoTraderConfig)}
             return AutoTraderConfig(**{k: v for k, v in raw.items() if k in known})
         return AutoTraderConfig()
 
     def _save(self) -> None:
+        if self.path is None:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(asdict(self.config), indent=2))
 
@@ -146,7 +148,7 @@ class AutoTrader:
         return last is not None and now - last < self.config.cooldown_minutes * 60
 
     def _submit(self, symbol: str, side: Side, lots: int, price: float, reason: str, now: float) -> None:
-        order = Order(symbol, side, lots, OrderType.MARKET, source="auto")
+        order = Order(symbol, side, lots, OrderType.MARKET, source="auto", created_at=now)
         try:
             self.broker.place_order(order, price)
         except BrokerError as exc:

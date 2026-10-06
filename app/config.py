@@ -33,6 +33,8 @@ class Settings:
     # Folder XBRL laporan keuangan; bisa diarahkan ke folder data/XBRL milik idx-financial-scraper.
     fundamentals_xbrl_dir: str = os.getenv("FUNDAMENTALS_XBRL_DIR", "")
     usd_idr_rate: float = float(os.getenv("USD_IDR_RATE", "16000"))
+    # Bila true, request lewat tunnel/proxy hanya boleh ke endpoint webhook (lihat README).
+    local_only_guard: bool = os.getenv("LOCAL_ONLY_GUARD", "true").lower() != "false"
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
 
 

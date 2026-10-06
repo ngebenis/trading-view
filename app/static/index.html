@@ -80,6 +80,7 @@
       <button class="tab" data-tab="backtest">Backtest</button>
       <button class="tab" data-tab="notif">Notifikasi <span id="notifDot" class="dot"></span></button>
       <button class="tab" data-tab="fund">Fundamental</button>
+      <button class="tab" data-tab="hook">Webhook <span id="hookDot" class="dot"></span></button>
       <button id="resetPaper" class="link">Reset akun simulasi</button>
     </div>
     <div id="summary" class="summary"></div>
@@ -119,6 +120,69 @@
       <p class="disclaimer">Hanya berjalan di akun Paper Trading. Sinyal memakai candle harian; stop-loss/take-profit (0 = nonaktif) diperiksa setiap siklus.</p>
       <h2>Log keputusan</h2>
       <div class="table-wrap"><table id="autoLog"></table></div>
+    </div>
+    <div id="hookPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Webhook alert TradingView</b>
+          <div id="hookStatus" class="muted"></div>
+        </div>
+        <div class="auto-actions">
+          <button id="hookTest" type="button">Kirim alert uji</button>
+          <button id="hookToggle" type="button" class="primary buy">Aktifkan</button>
+        </div>
+      </div>
+      <details id="hookGuide" class="note guide">
+        <summary>Cara menyambungkan TradingView (butuh paket TradingView berbayar untuk webhook)</summary>
+        <ol>
+          <li>Buka aplikasi ini ke internet dengan tunnel, mis. <code>ngrok http 8000</code> atau
+            <code>cloudflared tunnel --url http://localhost:8000</code>. Salin alamat https yang diberikan.</li>
+          <li>Di TradingView, buat alert (dari strategi atau indikator). Di bagian <b>Notifications</b>, centang
+            <b>Webhook URL</b> dan isi <code>&lt;alamat tunnel&gt;/api/webhooks/tradingview</code>.</li>
+          <li>Salin <b>template pesan</b> di bawah ke kolom <b>Message</b> alert.</li>
+          <li>Klik <b>Aktifkan</b>. Alert yang masuk tampil di log di bawah.</li>
+        </ol>
+        <p>Pengaman: request yang datang lewat tunnel hanya bisa mengakses endpoint webhook — halaman ini dan API lain
+          tetap hanya bisa dibuka dari komputer Anda. Jangan bagikan kode rahasia; ganti bila bocor.</p>
+      </details>
+      <div class="hook-grid">
+        <label class="wide">Webhook URL (path)
+          <span class="inline"><input id="hookUrl" readonly><button type="button" data-copy="#hookUrl">Salin</button></span>
+          <small>Gabungkan dengan alamat tunnel Anda. Alamat lokal ini hanya untuk uji.</small>
+        </label>
+        <label class="wide"><span>Template pesan untuk alert <b>strategi</b> (Pine Script <code>strategy</code>)</span>
+          <span class="inline"><input id="hookTplStrategy" readonly><button type="button" data-copy="#hookTplStrategy">Salin</button></span>
+        </label>
+        <label class="wide"><span>Template pesan untuk alert <b>indikator / garis</b> (ganti <code>"buy"</code> menjadi <code>"sell"</code> untuk alert jual)</span>
+          <span class="inline"><input id="hookTplIndicator" readonly><button type="button" data-copy="#hookTplIndicator">Salin</button></span>
+        </label>
+        <label class="wide">Kode rahasia
+          <span class="inline"><input id="hookSecret" type="password" readonly>
+            <button type="button" id="hookShow">Lihat</button><button type="button" id="hookRegen">Ganti</button></span>
+          <small>Sudah termasuk di template. Bila diganti, perbarui pesan di semua alert TradingView Anda.</small>
+        </label>
+      </div>
+      <form id="hookForm" class="auto-form">
+        <label>Aksi saat alert masuk
+          <select name="mode">
+            <option value="log">Catat saja</option>
+            <option value="notify">Kirim ke Telegram</option>
+            <option value="order">Telegram + order simulasi</option>
+          </select>
+        </label>
+        <label>Ukuran BELI (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
+        <label>Maks. lot per alert<input name="max_lots" type="number" min="1"></label>
+        <label class="wide">Simbol yang diizinkan (kosong = semua)<input name="allowed_symbols" placeholder="BBCA, TLKM"></label>
+        <div class="wide auto-save">
+          <button class="primary">Simpan pengaturan</button>
+          <span id="hookMsg" class="msg"></span>
+        </div>
+      </form>
+      <p class="disclaimer">Order dari webhook hanya ke akun Paper Trading, memakai harga pasar terakhir (harga dari alert bila data
+        pasar gagal), dan tetap dibatasi MAX_POSITION_PCT. Alert JUAL menjual posisi yang ada; field <code>"lots"</code> dan
+        <code>"mode"</code> di pesan bersifat opsional. Alert yang sama dalam 60 detik diabaikan.</p>
+      <h2>Alert masuk</h2>
+      <div class="table-wrap"><table id="hookLog"></table></div>
     </div>
     <div id="fundPane" class="hidden">
       <div class="auto-head">
@@ -269,5 +333,6 @@
   <script src="/static/backtest.js"></script>
   <script src="/static/notifications.js"></script>
   <script src="/static/fundamentals.js"></script>
+  <script src="/static/webhook.js"></script>
 </body>
 </html>

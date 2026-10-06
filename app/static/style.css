@@ -136,6 +136,13 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 .fund-links a, .fund-links span { font-size: 13px; border: 1px solid var(--border); border-radius: 99px; padding: 4px 10px; text-decoration: none; }
 .fund-links a { color: var(--accent); }
 .fund-links span { color: var(--up); }
+/* webhook */
+.hook-grid { display: grid; gap: 10px; margin-bottom: 12px; }
+.hook-grid input[readonly] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.kind-RECEIVED { color: var(--accent); } .kind-ORDER { color: var(--up); } .kind-NOTIFY { color: var(--accent); }
+.kind-SKIP { color: var(--muted); }
+#hookLog th, #hookLog td { text-align: left; }
+#hookLog td:nth-child(4) { white-space: normal; width: 100%; }
 .hidden { display: none !important; }
 @media (max-width: 1000px) {
   main { grid-template-columns: 1fr; }

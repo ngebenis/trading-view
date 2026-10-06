@@ -10,6 +10,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
 - 🤖 **Auto-trading berbasis sinyal** (khusus akun simulasi) dengan stop-loss, take-profit, cooldown & log keputusan
+- 📡 **Webhook alert TradingView**: alert dari strategi/indikator TradingView → log, Telegram, atau order simulasi
 - 🔔 **Notifikasi Telegram** saat muncul sinyal BELI/JUAL baru (dan saat bot auto-trading bertransaksi)
 - 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, beta, vs **IHSG** & vs beli & tahan
 - 🔌 Arsitektur **adapter broker**: Paper Trading (aktif), Stockbit & Pluang (lihat batasan di bawah)
@@ -111,6 +112,38 @@ setelah server di-restart. Order dari bot ditandai **🤖 auto** di riwayat orde
 Catatan: sinyal memakai candle harian, jadi biasanya hanya berubah sekali sehari;
 interval pendek terutama berguna untuk memantau stop-loss/take-profit.
 
+## 📡 Webhook alert TradingView
+
+Alert TradingView (fitur webhook butuh paket TradingView berbayar) bisa diteruskan ke aplikasi ini:
+dicatat, dikirim ke Telegram, atau sekaligus dieksekusi sebagai **order simulasi**.
+
+1. Buka aplikasi ke internet dengan tunnel, mis. `ngrok http 8000` atau
+   `cloudflared tunnel --url http://localhost:8000`.
+2. Di TradingView, buat alert → **Notifications** → centang **Webhook URL** →
+   `https://<alamat-tunnel>/api/webhooks/tradingview`.
+3. Salin **template pesan** dari tab **Webhook** ke kolom **Message** alert, mis. untuk strategi Pine Script:
+   ```json
+   {"secret": "<kode rahasia>", "symbol": "{{ticker}}", "action": "{{strategy.order.action}}",
+    "price": {{close}}, "message": "{{strategy.order.comment}}"}
+   ```
+4. Di tab **Webhook**, pilih aksi (catat / Telegram / Telegram + order simulasi) lalu klik **Aktifkan**.
+   Tombol **Kirim alert uji** mensimulasikan alert (tanpa membuat order).
+
+Field pesan: `symbol` (wajib; `IDX:BBCA`, `BBCA.JK` juga diterima), `action` (`buy`/`sell`, juga
+`long`/`short`/`exit`; kosong = alert informasi), `price`, `message` — opsional: `lots` dan
+`mode` (`log`/`notify`/`order`, menimpa pengaturan untuk alert itu).
+
+Aturan order: hanya akun Paper Trading; harga = harga pasar terakhir (harga dari alert bila data pasar
+gagal); BELI tanpa `lots` memakai % ekuitas; dibatasi *maks. lot per alert* dan `MAX_POSITION_PCT`;
+JUAL menjual posisi yang ada (semua bila tanpa `lots`); indeks tidak dieksekusi. Alert identik
+dalam 60 detik diabaikan. Order dari webhook ditandai **📡 webhook** di riwayat order.
+
+**Keamanan.** TradingView tidak bisa mengirim header khusus, jadi alert diautentikasi dengan
+kode rahasia di isi pesan (bisa diganti kapan saja di tab Webhook). Karena aplikasi dibuka lewat
+tunnel, ada pengaman bawaan (`LOCAL_ONLY_GUARD=true`): request yang datang lewat tunnel/proxy
+(membawa header seperti `X-Forwarded-For` / `Cf-Connecting-Ip`) **hanya** boleh ke
+`/api/webhooks/tradingview` — UI dan API lain tetap hanya bisa dibuka dari komputer Anda.
+
 ## 🔔 Notifikasi Telegram
 
 1. Di Telegram, chat [@BotFather](https://t.me/BotFather) → `/newbot` → salin **token**.
@@ -197,6 +230,7 @@ app/
   autotrader.py      Bot auto-trading (simulasi)
   backtest.py        Backtest bot dengan data historis
   notifier.py        Notifikasi Telegram & pemantau sinyal
+  webhooks.py        Penerima webhook alert TradingView
   fundamentals.py    Parser laporan keuangan XBRL IDX & rasio fundamental
   fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
   brokers/
@@ -230,6 +264,10 @@ tests/               Unit & API test
 | POST | `/api/notifications/test` · `/start` · `/stop` · `/run-once` | Pesan uji & kendali pemantau |
 | GET | `/api/fundamentals/{kode}` | Laporan keuangan, rasio & link unduh IDX |
 | POST | `/api/fundamentals/upload?ticker=KODE` | Upload `instance.zip` / `.xbrl` (body mentah) |
+| POST | `/api/webhooks/tradingview` | Penerima alert TradingView (satu-satunya endpoint publik) |
+| GET | `/api/webhooks` | Status, template pesan & log alert |
+| PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
+| POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) |
 
 > Disclaimer: sinyal dihasilkan otomatis dan bukan rekomendasi investasi. Data Yahoo untuk IDX

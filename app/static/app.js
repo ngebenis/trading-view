@@ -231,7 +231,7 @@ async function loadAccount() {
     ot.innerHTML = `<tr><th>Waktu</th><th>Kode</th><th>Aksi</th><th>Tipe</th><th>Lot</th><th>Harga</th><th>Fee</th><th>Sumber</th><th>Status</th><th></th></tr>` +
       orders.map((o) => `<tr><td>${new Date(o.created_at * 1000).toLocaleString("id-ID")}</td><td>${o.symbol}</td>
         <td class="${o.side === "BUY" ? "up" : "down"}">${o.side}</td><td>${o.order_type}</td><td>${o.lots}</td>
-        <td>${fmt(o.fill_price ?? o.limit_price)}</td><td>${fmt(o.fee)}</td><td>${o.source === "auto" ? "🤖 auto" : "manual"}</td><td title="${o.message}">${o.status}</td>
+        <td>${fmt(o.fill_price ?? o.limit_price)}</td><td>${fmt(o.fee)}</td><td>${{ auto: "🤖 auto", webhook: "📡 webhook" }[o.source] || "manual"}</td><td title="${o.message}">${o.status}</td>
         <td>${o.status === "OPEN" ? `<button data-cancel="${o.id}">Batal</button>` : ""}</td></tr>`).join("");
     ot.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = async () => {
       await api(`/api/orders/${b.dataset.cancel}?broker=${state.broker}`, { method: "DELETE" }); loadAccount();
@@ -320,7 +320,9 @@ async function init() {
     $("#backtestPane").classList.toggle("hidden", tab !== "backtest");
     $("#notifPane").classList.toggle("hidden", tab !== "notif");
     $("#fundPane").classList.toggle("hidden", tab !== "fund");
-    $("#summary").classList.toggle("hidden", ["auto", "backtest", "notif", "fund"].includes(tab));
+    $("#hookPane").classList.toggle("hidden", tab !== "hook");
+    $("#summary").classList.toggle("hidden", ["auto", "backtest", "notif", "fund", "hook"].includes(tab));
+    if (tab === "hook") window.loadWebhook?.();
     if (tab === "notif") window.initNotifications?.();
     if (tab === "fund") window.loadFundamentals?.();
     if (tab === "backtest") window.initBacktest?.();

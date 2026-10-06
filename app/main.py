@@ -4,7 +4,8 @@ from pathlib import Path
 
 from datetime import date
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -19,6 +20,7 @@ from .idx_rules import (LOT_SIZE, is_index, normalize_symbol, round_to_tick, sto
 from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
 from .market_data import MarketDataError, get_provider
 from .notifier import NotifierError, SignalWatcher
+from .webhooks import TradingViewWebhook, WebhookError
 from .strategy import analyze
 
 STATIC = Path(__file__).parent / "static"
@@ -50,6 +52,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     watcher = SignalWatcher(provider, settings.data_dir / "notifications.json", settings.telegram_bot_token,
                             settings.telegram_chat_id, http=telegram_http)
     autotrader.listeners.append(watcher.on_autotrader_log)
+    webhook = TradingViewWebhook(paper, provider, settings.data_dir / "webhook.json", settings.max_position_pct,
+                                 notifier=watcher)
     fundamentals = FundamentalsStore(Path(settings.fundamentals_xbrl_dir) if settings.fundamentals_xbrl_dir
                                      else settings.data_dir / "fundamentals" / "XBRL")
 
@@ -70,6 +74,19 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
     app.state.autotrader = autotrader
     app.state.watcher = watcher
+    app.state.webhook = webhook
+
+    # Pengaman tunnel: request yang lewat proxy/tunnel (ngrok, Cloudflare Tunnel, dll) membawa header
+    # penerusan. Request seperti itu hanya boleh ke endpoint webhook; UI & API lain hanya untuk lokal.
+    PUBLIC_PATHS = {"/api/webhooks/tradingview"}
+    FORWARD_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip", "cf-connecting-ip", "x-forwarded-host")
+
+    @app.middleware("http")
+    async def local_only_guard(request: Request, call_next):
+        if settings.local_only_guard and request.url.path not in PUBLIC_PATHS and \
+                any(h in request.headers for h in FORWARD_HEADERS):
+            return JSONResponse({"detail": "Hanya endpoint webhook yang bisa diakses dari luar"}, status_code=403)
+        return await call_next(request)
     brokers: dict[str, Broker] = {b.name: b for b in (paper, StockbitBroker(), PluangBroker())}
 
     def get_broker(name: str) -> Broker:
@@ -300,6 +317,34 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
             return fundamentals.save_upload(content, ticker).to_dict()
         except FundamentalsError as exc:
             raise HTTPException(400, str(exc))
+
+    # ---- webhook alert TradingView --------------------------------------
+    @app.post("/api/webhooks/tradingview")
+    async def tradingview_webhook(request: Request, background: BackgroundTasks, secret: str | None = None):
+        try:
+            alert, entry = webhook.accept(await request.body(), secret)
+        except WebhookError as exc:
+            return JSONResponse({"ok": False, "detail": str(exc)}, status_code=exc.status)
+        # Balas TradingView secepatnya (batas waktunya ~3 detik); aksi dijalankan setelahnya.
+        background.add_task(webhook.process, alert)
+        return {"ok": True, "received": entry["message"], "symbol": alert.symbol}
+
+    @app.get("/api/webhooks")
+    def webhook_status():
+        return webhook.status()
+
+    @app.put("/api/webhooks/config")
+    def webhook_config(data: dict = Body(...)):
+        try:
+            webhook.update_config(data)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+        return webhook.status()
+
+    @app.post("/api/webhooks/regenerate-secret")
+    def webhook_regenerate():
+        webhook.regenerate_secret()
+        return webhook.status()
 
     # ---- backtest ------------------------------------------------------
     @app.post("/api/backtest")

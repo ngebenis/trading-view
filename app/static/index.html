@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IDX Trading View</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">IDX Trading View</div>
+    <form id="search">
+      <input id="symbolInput" placeholder="Kode saham / indeks, mis. BBCA, IHSG" autocomplete="off">
+      <button>Buka</button>
+    </form>
+    <div class="header-right">
+      <button id="ihsgTicker" class="ticker" type="button" title="Buka grafik IHSG">IHSG …</button>
+      <label>Broker
+        <select id="brokerSelect"></select>
+      </label>
+      <span id="dataSource" class="badge"></span>
+    </div>
+  </header>
+
+  <main>
+    <aside class="panel" id="watchlistPanel">
+      <h2>Watchlist</h2>
+      <ul id="watchlist"></ul>
+      <form id="addWatch"><input id="addWatchInput" placeholder="+ tambah kode"></form>
+    </aside>
+
+    <section class="center">
+      <div class="quote-bar">
+        <span id="qSymbol" class="q-symbol">—</span>
+        <span id="qPrice" class="q-price">—</span>
+        <span id="qChange" class="q-change"></span>
+        <span class="links">
+          <a id="lnkStockbit" target="_blank" rel="noopener">Stockbit ↗</a>
+          <a id="lnkTradingView" target="_blank" rel="noopener">TradingView ↗</a>
+        </span>
+      </div>
+      <div id="tvChart" class="chart"></div>
+    </section>
+
+    <aside class="panel" id="tradePanel">
+      <h2>Sinyal Teknikal</h2>
+      <div id="signal" class="signal">—</div>
+      <ul id="reasons" class="reasons"></ul>
+      <p class="disclaimer">Sinyal otomatis, bukan rekomendasi investasi.</p>
+
+      <h2>Order</h2>
+      <div id="brokerNote" class="note hidden"></div>
+      <form id="orderForm">
+        <div class="seg">
+          <button type="button" data-side="BUY" class="buy active">Beli</button>
+          <button type="button" data-side="SELL" class="sell">Jual</button>
+        </div>
+        <label>Tipe
+          <select id="orderType"><option value="MARKET">Market</option><option value="LIMIT">Limit</option></select>
+        </label>
+        <label id="limitWrap" class="hidden">Harga limit
+          <input id="limitPrice" type="number" step="1">
+          <small id="tickHint"></small>
+        </label>
+        <label>Jumlah lot (1 lot = 100 lembar)
+          <input id="lots" type="number" min="1" value="1">
+        </label>
+        <div class="estimate" id="estimate"></div>
+        <button id="submitOrder" class="primary buy">Beli</button>
+        <div id="orderMsg" class="msg"></div>
+      </form>
+    </aside>
+  </main>
+
+  <section class="bottom">
+    <div class="tabs">
+      <button class="tab active" data-tab="portfolio">Portofolio</button>
+      <button class="tab" data-tab="orders">Riwayat Order</button>
+      <button class="tab" data-tab="auto">Auto-Trading <span id="autoDot" class="dot"></span></button>
+      <button class="tab" data-tab="backtest">Backtest</button>
+      <button class="tab" data-tab="notif">Notifikasi <span id="notifDot" class="dot"></span></button>
+      <button class="tab" data-tab="fund">Fundamental</button>
+      <button id="resetPaper" class="link">Reset akun simulasi</button>
+    </div>
+    <div id="summary" class="summary"></div>
+    <div class="table-wrap">
+      <table id="portfolioTable"></table>
+      <table id="ordersTable" class="hidden"></table>
+    </div>
+    <div id="autoPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Auto-trading (akun simulasi)</b>
+          <div id="autoStatus" class="muted"></div>
+        </div>
+        <div class="auto-actions">
+          <button id="autoRunOnce">Jalankan 1 siklus</button>
+          <button id="autoToggle" class="primary buy">Mulai</button>
+        </div>
+      </div>
+      <form id="autoForm" class="auto-form">
+        <label class="wide">Simbol yang dipantau (pisahkan koma)
+          <input name="symbols" placeholder="BBCA, BBRI, TLKM">
+        </label>
+        <label>Interval (detik)<input name="interval_seconds" type="number" min="30"></label>
+        <label>Ukuran posisi (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
+        <label>Maks. posisi<input name="max_positions" type="number" min="1"></label>
+        <label>Beli bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Jual bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label>Stop-loss (%)<input name="stop_loss_pct" type="number" step="0.5" min="0"></label>
+        <label>Take-profit (%)<input name="take_profit_pct" type="number" step="0.5" min="0"></label>
+        <label>Cooldown (menit)<input name="cooldown_minutes" type="number" min="0"></label>
+        <label class="check"><input name="market_hours_only" type="checkbox"> Hanya saat jam bursa</label>
+        <div class="wide auto-save">
+          <button class="primary">Simpan pengaturan</button>
+          <span id="autoMsg" class="msg"></span>
+        </div>
+      </form>
+      <p class="disclaimer">Hanya berjalan di akun Paper Trading. Sinyal memakai candle harian; stop-loss/take-profit (0 = nonaktif) diperiksa setiap siklus.</p>
+      <h2>Log keputusan</h2>
+      <div class="table-wrap"><table id="autoLog"></table></div>
+    </div>
+    <div id="fundPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Fundamental <span id="fundSymbol"></span></b>
+          <div id="fundInfo" class="muted">Dari laporan keuangan resmi (XBRL) yang dipublikasikan IDX.</div>
+        </div>
+        <div class="auto-actions">
+          <label class="upload-btn">
+            <input id="fundFile" type="file" accept=".zip,.xbrl,.xml" multiple hidden>
+            <span class="btn">Upload laporan (instance.zip)</span>
+          </label>
+        </div>
+      </div>
+      <div id="fundMsg" class="msg"></div>
+      <div id="fundErrors" class="note hidden"></div>
+      <div id="fundEmpty" class="note guide hidden"></div>
+      <div id="fundResult" class="hidden">
+        <div id="fundAsOf" class="muted bt-range"></div>
+        <div id="fundTiles" class="tiles"></div>
+        <h2>Laporan keuangan</h2>
+        <div class="table-wrap"><table id="fundTable" class="fund-table"></table></div>
+        <p class="disclaimer">Laba rugi di laporan IDX bersifat kumulatif sejak awal tahun (YTD); PER, ROE &amp; ROA memakai laba
+          yang disetahunkan (Q1 ×4, Q2 ×2, Q3 ×4/3). Rasio valuasi memakai harga terakhir. Bukan rekomendasi investasi.</p>
+      </div>
+      <h2>Ambil laporan dari IDX</h2>
+      <div id="fundLinks" class="fund-links"></div>
+      <p class="disclaimer">Klik link untuk mengunduh <code>instance.zip</code> lewat browser Anda (selesaikan verifikasi IDX bila muncul),
+        lalu upload file tersebut di atas. Untuk banyak saham sekaligus, pakai skrip
+        <code>python scripts/fetch_idx_reports.py BBCA TLKM</code> (lihat README).</p>
+    </div>
+    <div id="notifPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Notifikasi sinyal ke Telegram</b>
+          <div id="notifStatus" class="muted"></div>
+        </div>
+        <div class="auto-actions">
+          <button id="notifTest" type="button">Kirim pesan uji</button>
+          <button id="notifRunOnce" type="button">Pindai sekarang</button>
+          <button id="notifToggle" type="button" class="primary buy">Mulai</button>
+        </div>
+      </div>
+      <details id="notifGuide" class="note guide">
+        <summary>Cara menyiapkan bot Telegram (± 2 menit)</summary>
+        <ol>
+          <li>Di Telegram, buka <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>, kirim <code>/newbot</code>, ikuti petunjuknya, lalu salin <b>token</b> yang diberikan.</li>
+          <li>Tempel token di bawah, klik <b>Simpan pengaturan</b>.</li>
+          <li>Buka bot baru Anda di Telegram dan kirim pesan apa saja (mis. <code>halo</code>). Untuk grup, tambahkan bot ke grup lalu kirim pesan di grup.</li>
+          <li>Klik <b>Cari chat ID</b>, pilih chat Anda, simpan, lalu klik <b>Kirim pesan uji</b>.</li>
+        </ol>
+      </details>
+      <form id="notifForm" class="auto-form">
+        <label class="wide-2">Bot token
+          <input name="bot_token" type="password" autocomplete="off" placeholder="123456789:AA...">
+          <small id="tokenHint"></small>
+        </label>
+        <label class="wide-2">Chat ID
+          <span class="inline">
+            <input name="chat_id" placeholder="mis. 123456789">
+            <button id="notifFindChat" type="button">Cari chat ID</button>
+          </span>
+          <small id="chatHint"></small>
+        </label>
+        <div id="chatList" class="wide chat-list hidden"></div>
+        <label class="wide">Saham yang dipantau (pisahkan koma)
+          <input name="symbols" placeholder="BBCA, BBRI, TLKM">
+        </label>
+        <label>Interval pemindaian (detik)<input name="interval_seconds" type="number" min="60"></label>
+        <label>Kirim BELI bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Kirim JUAL bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label class="check"><input name="market_hours_only" type="checkbox"> Hanya saat jam bursa</label>
+        <label class="check"><input name="notify_trades" type="checkbox"> Kirim juga transaksi bot auto-trading</label>
+        <div class="wide auto-save">
+          <button class="primary">Simpan pengaturan</button>
+          <button id="notifUseWatchlist" type="button">Pakai watchlist</button>
+          <span id="notifMsg" class="msg"></span>
+        </div>
+      </form>
+      <p class="disclaimer">Pesan dikirim saat sinyal <b>berubah</b> menjadi BELI atau JUAL — sinyal yang sama tidak dikirim ulang sampai mereda lalu muncul lagi. Sinyal memakai candle harian.</p>
+      <h2>Riwayat notifikasi</h2>
+      <div class="table-wrap"><table id="notifLog"></table></div>
+    </div>
+    <div id="backtestPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Backtest strategi auto-trading</b>
+          <div class="muted">Memutar ulang bot yang sama di atas data historis harian, lengkap dengan fee, lot, stop-loss/take-profit &amp; cooldown.</div>
+        </div>
+        <div class="auto-actions">
+          <button id="btCopyAuto" type="button">Salin pengaturan auto-trading</button>
+        </div>
+      </div>
+      <form id="btForm" class="auto-form">
+        <label class="wide">Simbol (pisahkan koma, maks. 30)
+          <input name="symbols" placeholder="BBCA, BBRI, TLKM">
+        </label>
+        <label>Periode
+          <select name="period">
+            <option value="6mo">6 bulan</option><option value="1y" selected>1 tahun</option>
+            <option value="2y">2 tahun</option><option value="5y">5 tahun</option>
+          </select>
+        </label>
+        <label>Modal awal (Rp)<input name="initial_cash" type="number" min="1000000" step="1000000"></label>
+        <label>Eksekusi order
+          <select name="execution">
+            <option value="next_open">Open hari berikutnya (realistis)</option>
+            <option value="close">Close hari sinyal (optimistis)</option>
+          </select>
+        </label>
+        <label>Ukuran posisi (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
+        <label>Maks. posisi<input name="max_positions" type="number" min="1"></label>
+        <label>Beli bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Jual bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label>Stop-loss (%)<input name="stop_loss_pct" type="number" step="0.5" min="0"></label>
+        <label>Take-profit (%)<input name="take_profit_pct" type="number" step="0.5" min="0"></label>
+        <label>Cooldown (menit)<input name="cooldown_minutes" type="number" min="0"></label>
+        <div class="wide auto-save">
+          <button id="btRun" class="primary">Jalankan backtest</button>
+          <button id="btApply" type="button" class="hidden">Terapkan ke auto-trading</button>
+          <span id="btMsg" class="msg"></span>
+        </div>
+      </form>
+
+      <div id="btResult" class="hidden">
+        <div id="btRange" class="muted bt-range"></div>
+        <div id="btTiles" class="tiles"></div>
+        <div class="bt-chart-card">
+          <div class="bt-chart-head">
+            <b>Ekuitas</b>
+            <div id="btLegend" class="legend"></div>
+          </div>
+          <div id="btChart" class="bt-chart" role="img" aria-label="Grafik ekuitas strategi dibanding IHSG dan beli dan tahan"></div>
+          <div id="btTip" class="bt-tip hidden"></div>
+        </div>
+        <div id="btWarnings" class="note hidden"></div>
+        <h2>Per saham</h2>
+        <div class="table-wrap"><table id="btSymbols"></table></div>
+        <h2>Transaksi <span id="btTradeCount" class="muted"></span></h2>
+        <div class="table-wrap bt-trades"><table id="btTrades"></table></div>
+        <p class="disclaimer">Hasil masa lalu tidak menjamin hasil masa depan. Backtest mengabaikan slippage, likuiditas, ARA/ARB, dan antrean order.</p>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script src="/static/app.js"></script>
+  <script src="/static/backtest.js"></script>
+  <script src="/static/notifications.js"></script>
+  <script src="/static/fundamentals.js"></script>
+</body>
+</html>

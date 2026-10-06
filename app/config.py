@@ -30,6 +30,9 @@ class Settings:
     enable_live_trading: bool = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    # Folder XBRL laporan keuangan; bisa diarahkan ke folder data/XBRL milik idx-financial-scraper.
+    fundamentals_xbrl_dir: str = os.getenv("FUNDAMENTALS_XBRL_DIR", "")
+    usd_idr_rate: float = float(os.getenv("USD_IDR_RATE", "16000"))
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
 
 

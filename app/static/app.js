@@ -59,6 +59,7 @@ async function loadSymbol(symbol) {
   $("#lnkStockbit").href = `https://stockbit.com/symbol/${symbol}`;
   $("#lnkTradingView").href = `https://www.tradingview.com/symbols/${tvSymbol(symbol).replace(":", "-")}/`;
   refreshOrderTicket();
+  if (!$("#fundPane").classList.contains("hidden")) window.loadFundamentals?.();
   renderWatchlist();
   renderChart(symbol);
   $("#signal").textContent = "…"; $("#signal").className = "signal"; $("#reasons").innerHTML = "";
@@ -318,8 +319,10 @@ async function init() {
     $("#autoPane").classList.toggle("hidden", tab !== "auto");
     $("#backtestPane").classList.toggle("hidden", tab !== "backtest");
     $("#notifPane").classList.toggle("hidden", tab !== "notif");
-    $("#summary").classList.toggle("hidden", ["auto", "backtest", "notif"].includes(tab));
+    $("#fundPane").classList.toggle("hidden", tab !== "fund");
+    $("#summary").classList.toggle("hidden", ["auto", "backtest", "notif", "fund"].includes(tab));
     if (tab === "notif") window.initNotifications?.();
+    if (tab === "fund") window.loadFundamentals?.();
     if (tab === "backtest") window.initBacktest?.();
     if (t.dataset.tab === "auto") loadAuto(true);
   });

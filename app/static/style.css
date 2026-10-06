@@ -125,6 +125,17 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 #notifLog th, #notifLog td { text-align: left; }
 #notifLog td:nth-child(4) { white-space: normal; width: 100%; }
 @media (max-width: 700px) { .auto-form .wide-2 { grid-column: 1 / -1; } }
+/* fundamental */
+.upload-btn .btn { display: inline-block; cursor: pointer; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 6px; padding: 6px 12px; }
+.upload-btn .btn:hover { border-color: var(--accent); }
+.fund-table th, .fund-table td { white-space: nowrap; }
+.fund-table td:first-child { color: var(--muted); }
+.fund-table tr.section td { color: var(--text); font-weight: 600; padding-top: 12px; border-bottom: none; }
+.fund-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.fund-links a, .fund-links span { font-size: 13px; border: 1px solid var(--border); border-radius: 99px; padding: 4px 10px; text-decoration: none; }
+.fund-links a { color: var(--accent); }
+.fund-links span { color: var(--up); }
 .hidden { display: none !important; }
 @media (max-width: 1000px) {
   main { grid-template-columns: 1fr; }

@@ -5,6 +5,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 📈 Grafik interaktif **TradingView** (`IDX:<KODE>`) dengan RSI, MACD, EMA
 - 💹 Harga & histori dari Yahoo Finance (`<KODE>.JK`), atau data demo offline
 - 📉 Pantau **IHSG** & **LQ45**: ticker IHSG di header, grafik, sinyal teknikal & notifikasi Telegram
+- 📑 **Analisis fundamental** dari laporan keuangan resmi IDX (XBRL): PER, PBV, ROE, DER, pertumbuhan laba
 - 🧠 Sinyal teknikal otomatis (RSI, EMA 12/26, MACD, Bollinger Band) → BELI / JUAL / TAHAN
 - 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
@@ -42,6 +43,43 @@ auto-trading maupun backtest.
 | LQ45 | `^JKLQ45` | `IDX:LQ45` |
 
 Indeks lain bisa ditambahkan di `INDICES` pada `app/idx_rules.py` (dan `app/static/app.js`).
+
+## 📑 Analisis fundamental (laporan keuangan IDX)
+
+Tab **Fundamental** menampilkan rasio dan angka laporan keuangan saham yang sedang dibuka,
+diambil dari file XBRL resmi yang dipublikasikan IDX (`instance.zip`).
+
+**Rasio:** PER, PBV, ROE, ROA, DER, current ratio, net & gross margin, pertumbuhan pendapatan
+dan laba (vs periode yang sama tahun lalu), EPS, nilai buku per saham, kapitalisasi pasar.
+Laba rugi di laporan IDX bersifat kumulatif sejak awal tahun (YTD), jadi PER/ROE/ROA memakai laba
+yang disetahunkan (Q1 ×4, Q2 ×2, Q3 ×4/3). Jumlah saham diambil dari laporan atau dihitung dari
+laba ÷ EPS. Emiten yang melapor dalam USD dikonversi dengan `USD_IDR_RATE`.
+
+**Cara mendapatkan laporan** (situs IDX memakai verifikasi Cloudflare, jadi pengunduhan selalu
+lewat browser Anda):
+
+1. **Satu per satu:** di tab Fundamental, klik link periode (mis. "Q2 2026 ↗") → browser mengunduh
+   `instance.zip` → klik **Upload laporan**. Tahun & periode dibaca otomatis dari isi file.
+2. **Banyak saham sekaligus:** skrip pengunduh (diadaptasi dari
+   [idx-financial-scraper](https://github.com/septianbyk/idx-financial-scraper)):
+   ```bash
+   pip install -r requirements-scraper.txt
+   python scripts/fetch_idx_reports.py BBCA TLKM ASII --start-year 2024
+   python scripts/fetch_idx_reports.py --watchlist watchlist.csv --periods FY
+   ```
+   Skrip membuka Chrome dengan profil terpisah; bila IDX meminta verifikasi, selesaikan di jendela
+   Chrome lalu tekan Enter di terminal. Unduhan diberi jeda (default 2 detik), file yang sudah ada
+   dilewati, dan setiap file dicek apakah benar laporan XBRL. Jalan di Windows, macOS & Linux.
+3. **Sudah memakai idx-financial-scraper?** Arahkan `FUNDAMENTALS_XBRL_DIR` ke folder `data/XBRL`
+   miliknya — tata letak foldernya sama (`<tahun>/<periode>/<KODE>_<tahun>_<periode>.xbrl`).
+
+Pemetaan akun → tag XBRL ada di `app/fundamentals_taxonomy.csv` (urutan baris = prioritas) dan
+bisa ditambah sendiri. Jenis laporan (umum / bank / asuransi) dideteksi otomatis dari isinya.
+Dibanding versi aslinya, parser ini memilih angka total (bukan per segmen) dan periode YTD
+berdasarkan tanggal, ikut memproses laporan tahunan, serta mengambil angka tahun lalu dari file
+yang sama untuk menghitung pertumbuhan.
+
+Gunakan sesuai ketentuan situs IDX: untuk riset pribadi, bukan untuk didistribusikan ulang.
 
 ## 🤖 Auto-trading (mode simulasi)
 
@@ -159,11 +197,15 @@ app/
   autotrader.py      Bot auto-trading (simulasi)
   backtest.py        Backtest bot dengan data historis
   notifier.py        Notifikasi Telegram & pemantau sinyal
+  fundamentals.py    Parser laporan keuangan XBRL IDX & rasio fundamental
+  fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
   brokers/
     base.py          Kontrak Broker & model Order
     paper.py         Simulasi paper trading (tersimpan di data/paper_account.json)
     external.py      Kerangka adapter Stockbit & Pluang
   static/            UI (HTML/CSS/JS + widget TradingView)
+scripts/
+  fetch_idx_reports.py  Pengunduh laporan XBRL dari idx.co.id (opsional, butuh Playwright)
 tests/               Unit & API test
 ```
 
@@ -186,6 +228,8 @@ tests/               Unit & API test
 | PUT | `/api/notifications/config` | Ubah pengaturan (token, chat ID, saham, ambang skor) |
 | GET | `/api/notifications/chats` | Cari chat ID dari pesan terbaru ke bot |
 | POST | `/api/notifications/test` · `/start` · `/stop` · `/run-once` | Pesan uji & kendali pemantau |
+| GET | `/api/fundamentals/{kode}` | Laporan keuangan, rasio & link unduh IDX |
+| POST | `/api/fundamentals/upload?ticker=KODE` | Upload `instance.zip` / `.xbrl` (body mentah) |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) |
 
 > Disclaimer: sinyal dihasilkan otomatis dan bukan rekomendasi investasi. Data Yahoo untuk IDX

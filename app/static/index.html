@@ -79,6 +79,7 @@
       <button class="tab" data-tab="auto">Auto-Trading <span id="autoDot" class="dot"></span></button>
       <button class="tab" data-tab="backtest">Backtest</button>
       <button class="tab" data-tab="notif">Notifikasi <span id="notifDot" class="dot"></span></button>
+      <button class="tab" data-tab="fund">Fundamental</button>
       <button id="resetPaper" class="link">Reset akun simulasi</button>
     </div>
     <div id="summary" class="summary"></div>
@@ -118,6 +119,36 @@
       <p class="disclaimer">Hanya berjalan di akun Paper Trading. Sinyal memakai candle harian; stop-loss/take-profit (0 = nonaktif) diperiksa setiap siklus.</p>
       <h2>Log keputusan</h2>
       <div class="table-wrap"><table id="autoLog"></table></div>
+    </div>
+    <div id="fundPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Fundamental <span id="fundSymbol"></span></b>
+          <div id="fundInfo" class="muted">Dari laporan keuangan resmi (XBRL) yang dipublikasikan IDX.</div>
+        </div>
+        <div class="auto-actions">
+          <label class="upload-btn">
+            <input id="fundFile" type="file" accept=".zip,.xbrl,.xml" multiple hidden>
+            <span class="btn">Upload laporan (instance.zip)</span>
+          </label>
+        </div>
+      </div>
+      <div id="fundMsg" class="msg"></div>
+      <div id="fundErrors" class="note hidden"></div>
+      <div id="fundEmpty" class="note guide hidden"></div>
+      <div id="fundResult" class="hidden">
+        <div id="fundAsOf" class="muted bt-range"></div>
+        <div id="fundTiles" class="tiles"></div>
+        <h2>Laporan keuangan</h2>
+        <div class="table-wrap"><table id="fundTable" class="fund-table"></table></div>
+        <p class="disclaimer">Laba rugi di laporan IDX bersifat kumulatif sejak awal tahun (YTD); PER, ROE &amp; ROA memakai laba
+          yang disetahunkan (Q1 ×4, Q2 ×2, Q3 ×4/3). Rasio valuasi memakai harga terakhir. Bukan rekomendasi investasi.</p>
+      </div>
+      <h2>Ambil laporan dari IDX</h2>
+      <div id="fundLinks" class="fund-links"></div>
+      <p class="disclaimer">Klik link untuk mengunduh <code>instance.zip</code> lewat browser Anda (selesaikan verifikasi IDX bila muncul),
+        lalu upload file tersebut di atas. Untuk banyak saham sekaligus, pakai skrip
+        <code>python scripts/fetch_idx_reports.py BBCA TLKM</code> (lihat README).</p>
     </div>
     <div id="notifPane" class="hidden">
       <div class="auto-head">
@@ -237,5 +268,6 @@
   <script src="/static/app.js"></script>
   <script src="/static/backtest.js"></script>
   <script src="/static/notifications.js"></script>
+  <script src="/static/fundamentals.js"></script>
 </body>
 </html>

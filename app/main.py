@@ -2,7 +2,9 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from datetime import date
+
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -14,6 +16,7 @@ from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType,
 from .config import Settings, settings as default_settings
 from .idx_rules import (LOT_SIZE, is_index, normalize_symbol, round_to_tick, stockbit_url, tick_size,
                         tradingview_symbol, tradingview_url)
+from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
 from .market_data import MarketDataError, get_provider
 from .notifier import NotifierError, SignalWatcher
 from .strategy import analyze
@@ -47,6 +50,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     watcher = SignalWatcher(provider, settings.data_dir / "notifications.json", settings.telegram_bot_token,
                             settings.telegram_chat_id, http=telegram_http)
     autotrader.listeners.append(watcher.on_autotrader_log)
+    fundamentals = FundamentalsStore(Path(settings.fundamentals_xbrl_dir) if settings.fundamentals_xbrl_dir
+                                     else settings.data_dir / "fundamentals" / "XBRL")
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -259,6 +264,42 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         if not watcher.status()["configured"]:
             raise HTTPException(400, "Isi bot token dan chat ID Telegram terlebih dahulu")
         return notifier_call(watcher.scan)
+
+    # ---- fundamental (laporan keuangan XBRL IDX) -----------------------
+    MAX_UPLOAD = 30 * 1024 * 1024
+
+    @app.get("/api/fundamentals/{symbol}")
+    def fundamentals_get(symbol: str):
+        sym = normalize_symbol(symbol)
+        if is_index(sym):
+            raise HTTPException(400, f"{sym} adalah indeks dan tidak memiliki laporan keuangan")
+        reports, errors = fundamentals.reports(sym)
+        price = None
+        try:
+            price = provider.quote(sym).price
+        except MarketDataError as exc:
+            errors.append(f"Harga {sym} tidak tersedia, rasio valuasi (PER/PBV) dilewati: {exc}")
+        stored = {(r.year, r.period) for r in reports}
+        return {
+            "symbol": sym,
+            "xbrl_dir": str(fundamentals.xbrl_dir),
+            "reports": [{**r.to_dict(), "ratios": compute_ratios(r, price, settings.usd_idr_rate)} for r in reports],
+            "download_links": [{"year": y, "period": p, "url": idx_report_url(sym, y, p), "stored": (y, p) in stored}
+                               for y, p in recent_periods(date.today())],
+            "errors": errors,
+        }
+
+    @app.post("/api/fundamentals/upload")
+    async def fundamentals_upload(request: Request, ticker: str | None = None):
+        content = await request.body()
+        if not content:
+            raise HTTPException(400, "File kosong")
+        if len(content) > MAX_UPLOAD:
+            raise HTTPException(413, "File terlalu besar (maks. 30 MB)")
+        try:
+            return fundamentals.save_upload(content, ticker).to_dict()
+        except FundamentalsError as exc:
+            raise HTTPException(400, str(exc))
 
     # ---- backtest ------------------------------------------------------
     @app.post("/api/backtest")

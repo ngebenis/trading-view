@@ -1,5 +1,5 @@
 :root {
-  --series-1: #2a78d6; --series-2: #eb6834; --grid: #e9ebee;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --grid: #e9ebee;
   --bg: #f6f7f9; --surface: #ffffff; --border: #e3e6ea; --text: #1b1f24; --muted: #66707a;
   --up: #0f9d58; --down: #d93025; --accent: #2962ff; --up-bg: #e6f4ea; --down-bg: #fce8e6;
 }
@@ -7,7 +7,7 @@
   :root {
     --bg: #0f1216; --surface: #161a20; --border: #262c34; --text: #e6e9ed; --muted: #8a94a0;
     --up: #26a69a; --down: #ef5350; --accent: #5b8cff; --up-bg: #12302c; --down-bg: #3a1a1a;
-    --series-1: #3987e5; --series-2: #d95926; --grid: #232830;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --grid: #232830;
   }
 }
 * { box-sizing: border-box; }
@@ -90,17 +90,17 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .sw { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
-.sw.s1 { background: var(--series-1); } .sw.s2 { background: var(--series-2); }
+.sw.s1 { background: var(--series-1); } .sw.s2 { background: var(--series-2); } .sw.s3 { background: var(--series-3); }
 .bt-chart { height: 300px; }
 .bt-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .bt-chart .gridline { stroke: var(--grid); stroke-width: 1; }
 .bt-chart .axis-label { fill: var(--muted); font-size: 11px; }
 .bt-chart .end-label { fill: var(--text); font-size: 12px; font-weight: 600; }
 .bt-chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.bt-chart .l1 { stroke: var(--series-1); } .bt-chart .l2 { stroke: var(--series-2); }
+.bt-chart .l1 { stroke: var(--series-1); } .bt-chart .l2 { stroke: var(--series-2); } .bt-chart .l3 { stroke: var(--series-3); }
 .bt-chart .area { fill: var(--series-1); opacity: .1; }
 .bt-chart .dot { stroke: var(--surface); stroke-width: 2; }
-.bt-chart .d1 { fill: var(--series-1); } .bt-chart .d2 { fill: var(--series-2); }
+.bt-chart .d1 { fill: var(--series-1); } .bt-chart .d2 { fill: var(--series-2); } .bt-chart .d3 { fill: var(--series-3); }
 .bt-chart .xhair { stroke: var(--muted); stroke-width: 1; }
 .bt-tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
   padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap; font-variant-numeric: tabular-nums; }

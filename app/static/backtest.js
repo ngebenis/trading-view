@@ -85,13 +85,18 @@
       `${p.symbols.length} saham · eksekusi ${p.execution === "next_open" ? "open hari berikutnya" : "close hari sinyal"} · ` +
       `fee beli ${fmt(p.buy_fee_pct, 2)}% / jual ${fmt(p.sell_fee_pct, 2)}%`;
 
-    const diff = m.benchmark_return_pct == null ? null : m.total_return_pct - m.benchmark_return_pct;
+    const vs = (other) => other == null ? null : m.total_return_pct - other;
+    const vsIhsg = vs(m.ihsg_return_pct), vsBench = vs(m.benchmark_return_pct);
+    const ddCompare = [m.ihsg_max_drawdown_pct != null && `IHSG ${fmt(m.ihsg_max_drawdown_pct, 2)}%`,
+      m.benchmark_max_drawdown_pct != null && `Beli & tahan ${fmt(m.benchmark_max_drawdown_pct, 2)}%`].filter(Boolean).join(" · ");
     const tiles = [
       ["Total return", `<span class="${cls(m.total_return_pct)}">${pct(m.total_return_pct)}</span>`, `Akhir ${rp(m.final_equity)}`],
-      ["vs Beli & tahan", `<span class="${cls(diff)}">${pct(diff)}</span>`, `Beli & tahan ${pct(m.benchmark_return_pct)}`],
+      ["vs IHSG", `<span class="${cls(vsIhsg)}">${pct(vsIhsg)}</span>`, m.ihsg_return_pct == null ? "Data IHSG tidak tersedia" : `IHSG ${pct(m.ihsg_return_pct)}`],
+      ["vs Beli & tahan", `<span class="${cls(vsBench)}">${pct(vsBench)}</span>`, `Beli & tahan ${pct(m.benchmark_return_pct)}`],
       ["CAGR", pct(m.cagr_pct), "Return per tahun"],
-      ["Max drawdown", `<span class="down">${fmt(m.max_drawdown_pct, 2)}%</span>`, `Beli & tahan ${fmt(m.benchmark_max_drawdown_pct, 2)}%`],
+      ["Max drawdown", `<span class="down">${fmt(m.max_drawdown_pct, 2)}%</span>`, ddCompare],
       ["Sharpe", fmt(m.sharpe, 2), "Tahunan, risk-free 0"],
+      ["Beta vs IHSG", m.beta_vs_ihsg == null ? "—" : fmt(m.beta_vs_ihsg, 2), "1 = bergerak seperti IHSG, 0 = tidak terpengaruh"],
       ["Win rate", m.win_rate_pct == null ? "—" : `${fmt(m.win_rate_pct, 1)}%`, `${m.trades} transaksi selesai`],
       ["Profit factor", m.profit_factor == null ? "—" : fmt(m.profit_factor, 2), `Rata-rata ${pct(m.avg_trade_pct)}/transaksi`],
       ["Fee dibayar", shortRp(m.fees_paid), `Waktu berinvestasi ${fmt(m.exposure_pct, 0)}%`],
@@ -101,7 +106,7 @@
 
     const w = $("#btWarnings");
     w.classList.toggle("hidden", !r.warnings.length);
-    w.innerHTML = r.warnings.length ? "Dilewati: " + r.warnings.map(escapeHtml).join("; ") : "";
+    w.innerHTML = r.warnings.length ? "Catatan: " + r.warnings.map(escapeHtml).join("; ") : "";
 
     $("#btSymbols").innerHTML = `<tr><th>Kode</th><th>Transaksi</th><th>Menang</th><th>P/L strategi</th><th>Beli & tahan</th></tr>` +
       r.per_symbol.map((s) => `<tr><td>${s.symbol}</td><td>${s.trades}</td><td>${s.wins}</td>
@@ -129,13 +134,34 @@
     return ticks;
   }
 
+  // Urutan = urutan gambar (yang terakhir paling atas). Warna mengikuti entitas, bukan urutan.
+  const SERIES = [
+    { key: "benchmark", label: "Beli & tahan", legend: "Beli & tahan (bobot sama, tanpa fee)", n: 2 },
+    { key: "ihsg", label: "IHSG", legend: "IHSG", n: 3 },
+    { key: "equity", label: "Strategi", legend: "Strategi", n: 1 },
+  ];
+
+  // Geser label ujung agar tidak bertumpuk (jarak minimal `gap` px), tetap di dalam area plot.
+  function spreadLabels(items, gap, top, bottom) {
+    const sorted = items.slice().sort((a, b) => a.y - b.y);
+    for (let i = 1; i < sorted.length; i++) sorted[i].y = Math.max(sorted[i].y, sorted[i - 1].y + gap);
+    const overflow = sorted.length ? sorted[sorted.length - 1].y - bottom : 0;
+    if (overflow > 0) sorted.forEach((it) => { it.y -= overflow; });
+    for (let i = sorted.length - 2; i >= 0; i--) sorted[i].y = Math.min(sorted[i].y, sorted[i + 1].y - gap);
+    sorted.forEach((it) => { it.y = Math.max(it.y, top); });
+    return items;
+  }
+
   function drawChart(curve) {
     const box = $("#btChart");
     const W = box.clientWidth, H = box.clientHeight;
     const pad = { l: 64, r: 96, t: 10, b: 26 };
     const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
-    const hasBench = curve[0].benchmark != null;
-    const vals = curve.flatMap((p) => hasBench ? [p.equity, p.benchmark] : [p.equity]);
+    const series = SERIES.filter((s) => curve[0][s.key] != null);
+    $("#btLegend").innerHTML = series.slice().reverse()
+      .map((s) => `<span><i class="sw s${s.n}"></i>${escapeHtml(s.legend)}</span>`).join("");
+
+    const vals = curve.flatMap((p) => series.map((s) => p[s.key]));
     const ticks = niceTicks(Math.min(...vals), Math.max(...vals));
     const y0 = ticks[0], y1 = ticks[ticks.length - 1];
     const x = (i) => pad.l + (curve.length === 1 ? 0 : (i / (curve.length - 1)) * iw);
@@ -147,27 +173,19 @@
     const xIdx = [...new Set(Array.from({ length: nX }, (_, k) => Math.round((k / Math.max(nX - 1, 1)) * (curve.length - 1))))];
     const monthFmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("id-ID", { month: "short", year: "2-digit" });
 
-    // label ujung (direct label), digeser bila bertumpuk
-    const last = curve[curve.length - 1];
-    let ly1 = y(last.equity), ly2 = hasBench ? y(last.benchmark) : null;
-    if (hasBench && Math.abs(ly1 - ly2) < 14) {
-      const mid = (ly1 + ly2) / 2, up = ly1 <= ly2 ? -7 : 7;
-      ly1 = mid + up; ly2 = mid - up;
-    }
+    const last = curve[curve.length - 1], xEnd = x(curve.length - 1);
+    const labels = spreadLabels(series.map((s) => ({ s, y: y(last[s.key]) })), 15, pad.t + 4, pad.t + ih);
 
     box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
       ${ticks.map((t) => `<line class="gridline" x1="${pad.l}" x2="${W - pad.r}" y1="${y(t)}" y2="${y(t)}"/>
         <text class="axis-label" x="${pad.l - 8}" y="${y(t) + 4}" text-anchor="end">${shortRp(t)}</text>`).join("")}
       ${xIdx.map((i) => `<text class="axis-label" x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === curve.length - 1 ? "end" : "middle"}">${monthFmt(curve[i].date)}</text>`).join("")}
-      <path class="area" d="${path("equity")}L${x(curve.length - 1)},${y(y0)}L${x(0)},${y(y0)}Z"/>
-      ${hasBench ? `<path class="line l2" d="${path("benchmark")}"/>` : ""}
-      <path class="line l1" d="${path("equity")}"/>
-      <text class="end-label" x="${x(curve.length - 1) + 8}" y="${ly1 + 4}">Strategi</text>
-      ${hasBench ? `<text class="end-label" x="${x(curve.length - 1) + 8}" y="${ly2 + 4}">Beli &amp; tahan</text>` : ""}
+      <path class="area" d="${path("equity")}L${xEnd},${y(y0)}L${x(0)},${y(y0)}Z"/>
+      ${series.map((s) => `<path class="line l${s.n}" d="${path(s.key)}"/>`).join("")}
+      ${labels.map((l) => `<text class="end-label" x="${xEnd + 8}" y="${l.y + 4}">${escapeHtml(l.s.label)}</text>`).join("")}
       <g id="btHover" visibility="hidden">
         <line class="xhair" y1="${pad.t}" y2="${pad.t + ih}"/>
-        ${hasBench ? `<circle class="dot d2" r="4"/>` : ""}
-        <circle class="dot d1" r="4"/>
+        ${series.map((s) => `<circle class="dot d${s.n}" data-key="${s.key}" r="4"/>`).join("")}
       </g>
       <rect x="${pad.l}" y="${pad.t}" width="${iw}" height="${ih}" fill="transparent" id="btHit"/>
     </svg>`;
@@ -182,12 +200,12 @@
       hover.setAttribute("visibility", "visible");
       hover.querySelector(".xhair").setAttribute("x1", cx);
       hover.querySelector(".xhair").setAttribute("x2", cx);
-      hover.querySelector(".d1").setAttribute("cx", cx); hover.querySelector(".d1").setAttribute("cy", y(p.equity));
-      if (hasBench) { hover.querySelector(".d2").setAttribute("cx", cx); hover.querySelector(".d2").setAttribute("cy", y(p.benchmark)); }
+      hover.querySelectorAll(".dot").forEach((d) => { d.setAttribute("cx", cx); d.setAttribute("cy", y(p[d.dataset.key])); });
       const base = curve[0].equity;
-      tip.innerHTML = `<b>${fmtDate(p.date)}</b><br>
-        <i style="background:var(--series-1)"></i>Strategi ${rp(p.equity)} (${pct((p.equity / base - 1) * 100)})` +
-        (hasBench ? `<br><i style="background:var(--series-2)"></i>Beli &amp; tahan ${rp(p.benchmark)} (${pct((p.benchmark / base - 1) * 100)})` : "");
+      // Baris tooltip diurutkan dari nilai tertinggi, sama seperti posisi garis.
+      const rows = series.slice().sort((a, b) => p[b.key] - p[a.key]).map((s) =>
+        `<i style="background:var(--series-${s.n})"></i>${escapeHtml(s.label)} ${rp(p[s.key])} (${pct((p[s.key] / base - 1) * 100)})`);
+      tip.innerHTML = `<b>${fmtDate(p.date)}</b><br>${rows.join("<br>")}`;
       tip.classList.remove("hidden");
       const card = box.parentElement.getBoundingClientRect();
       const left = rect.left - card.left + cx;

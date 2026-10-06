@@ -27,6 +27,7 @@ FETCH_RANGE = {"6mo": "1y", "1y": "2y", "2y": "5y", "5y": "10y"}
 SIGNAL_LOOKBACK = 250
 MIN_HISTORY = 35
 MAX_SYMBOLS = 30
+BENCHMARK_INDEX = "IHSG"
 
 
 @dataclass
@@ -87,6 +88,19 @@ def _max_drawdown(values: list[float]) -> float:
         peak = max(peak, v)
         mdd = min(mdd, (v - peak) / peak)
     return mdd * 100
+
+
+def _beta(values: list[float], market: list[float]) -> float | None:
+    """Sensitivitas return harian strategi terhadap pasar (1 = bergerak sama dengan IHSG)."""
+    a = [values[i] / values[i - 1] - 1 for i in range(1, len(values))]
+    b = [market[i] / market[i - 1] - 1 for i in range(1, len(market))]
+    if len(b) < 2:
+        return None
+    ma, mb = sum(a) / len(a), sum(b) / len(b)
+    var = sum((x - mb) ** 2 for x in b)
+    if not var:
+        return None
+    return round(sum((x - ma) * (y - mb) for x, y in zip(a, b)) / var, 2) + 0.0  # tanpa -0.0
 
 
 def _round_trips(orders, last_prices: dict[str, float], sell_fee: float) -> list[dict]:
@@ -154,6 +168,15 @@ def run_backtest(req: BacktestRequest, provider, base_config: AutoTraderConfig,
     if not history:
         raise ValueError("Tidak ada data historis yang bisa dipakai. " + "; ".join(warnings))
 
+    # Data IHSG sebagai pembanding pasar (opsional: backtest tetap jalan bila gagal)
+    ihsg = None
+    try:
+        ihsg_candles = provider.candles(BENCHMARK_INDEX, FETCH_RANGE[req.period], "1d")
+        if ihsg_candles:
+            ihsg = _ReplayProvider({BENCHMARK_INDEX: ihsg_candles}, req.execution)
+    except MarketDataError as exc:
+        warnings.append(f"Pembanding IHSG tidak tersedia: {exc}")
+
     # 2) Kalender perdagangan
     last_ts = max(cs[-1].time for cs in history.values())
     start_day = _day(int(last_ts - PERIOD_DAYS[req.period] * 86400))
@@ -201,6 +224,15 @@ def run_backtest(req: BacktestRequest, provider, base_config: AutoTraderConfig,
         ratios = [replay.close_on(s, point["date"]) / replay.close_on(s, first_day) for s in bench_syms]
         bench_curve.append(round(req.initial_cash * sum(ratios) / len(ratios), 2))
 
+    # Benchmark IHSG: nilai modal awal bila diinvestasikan ke indeks (tanpa fee)
+    ihsg_curve = []
+    ihsg_start = ihsg.close_on(BENCHMARK_INDEX, first_day) if ihsg else None
+    if ihsg and not ihsg_start:
+        warnings.append("Pembanding IHSG tidak tersedia: data IHSG tidak mencakup awal periode")
+    elif ihsg_start:
+        ihsg_curve = [round(req.initial_cash * ihsg.close_on(BENCHMARK_INDEX, p["date"]) / ihsg_start, 2)
+                      for p in equity_curve]
+
     # 5) Statistik
     last_prices = {s: replay.close_on(s, last_day) for s in history}
     trips = _round_trips(broker.orders(), last_prices, broker.sell_fee)
@@ -216,6 +248,7 @@ def run_backtest(req: BacktestRequest, provider, base_config: AutoTraderConfig,
     final = values[-1]
     total_return = (final / req.initial_cash - 1) * 100
     filled = [o for o in broker.orders() if o.status == OrderStatus.FILLED]
+    beta = _beta(values, ihsg_curve) if ihsg_curve else None
 
     per_symbol = []
     for sym in history:
@@ -249,8 +282,12 @@ def run_backtest(req: BacktestRequest, provider, base_config: AutoTraderConfig,
             "exposure_pct": round(days_invested / len(steps) * 100, 1),
             "benchmark_return_pct": round((bench_curve[-1] / req.initial_cash - 1) * 100, 2) if bench_curve else None,
             "benchmark_max_drawdown_pct": round(_max_drawdown(bench_curve), 2) if bench_curve else None,
+            "ihsg_return_pct": round((ihsg_curve[-1] / req.initial_cash - 1) * 100, 2) if ihsg_curve else None,
+            "ihsg_max_drawdown_pct": round(_max_drawdown(ihsg_curve), 2) if ihsg_curve else None,
+            "beta_vs_ihsg": beta,
         },
-        "equity_curve": [{**p, "benchmark": bench_curve[i] if bench_curve else None} for i, p in enumerate(equity_curve)],
+        "equity_curve": [{**p, "benchmark": bench_curve[i] if bench_curve else None,
+                          "ihsg": ihsg_curve[i] if ihsg_curve else None} for i, p in enumerate(equity_curve)],
         "trades": trips,
         "per_symbol": sorted(per_symbol, key=lambda r: r["pl"], reverse=True),
         "warnings": warnings,

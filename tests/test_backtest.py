@@ -87,7 +87,7 @@ def test_strategy_override_changes_result_and_benchmark():
 def test_skips_symbols_without_data():
     r = bt(HistProvider({"AAAA": make_candles(), "SHORT": make_candles(20)}), symbols=["AAAA", "SHORT", "NONE"])
     assert r["params"]["symbols"] == ["AAAA"]
-    assert len(r["warnings"]) == 2
+    assert len([w for w in r["warnings"] if "IHSG" not in w]) == 2
 
 
 @pytest.mark.parametrize("kw,msg", [
@@ -117,3 +117,38 @@ def test_api(tmp_path):
     assert client.post("/api/backtest", json={"strategy": {"bogus": 1}}).status_code == 400
     # Backtest tidak menyentuh akun simulasi
     assert client.get("/api/orders").json() == []
+
+
+def test_ihsg_benchmark():
+    stock = make_candles()
+    # IHSG naik linear 6000 -> 6000 + n: return & drawdown mudah dihitung.
+    ihsg = [Candle(c.time, 6000 + i, 6000 + i, 6000 + i, 6000 + i, 0) for i, c in enumerate(stock)]
+    r = bt(HistProvider({"AAAA": stock, "IHSG": ihsg}))
+    curve, m = r["equity_curve"], r["metrics"]
+    start = datetime.fromisoformat(curve[0]["date"]).replace(hour=9, tzinfo=WIB).timestamp()
+    i0 = next(i for i, c in enumerate(ihsg) if c.time >= start)
+    expected = (ihsg[-1].close / ihsg[i0].close - 1) * 100
+    assert curve[0]["ihsg"] == 100_000_000
+    assert m["ihsg_return_pct"] == pytest.approx(expected, abs=0.01)
+    assert m["ihsg_max_drawdown_pct"] == 0.0  # tidak pernah turun
+    assert m["beta_vs_ihsg"] is not None
+    assert "IHSG" not in r["params"]["symbols"]  # pembanding, bukan saham yang diperdagangkan
+    assert not any("IHSG" in w for w in r["warnings"])
+
+
+def test_ihsg_benchmark_missing_is_a_warning():
+    r = bt(HistProvider({"AAAA": make_candles()}))
+    assert r["metrics"]["ihsg_return_pct"] is None and r["equity_curve"][0]["ihsg"] is None
+    assert any("Pembanding IHSG tidak tersedia" in w for w in r["warnings"])
+
+
+def test_beta():
+    from app.backtest import _beta
+    market = [100, 102, 101, 104, 103, 107]
+    assert _beta(market, market) == 1.0
+    double = [100.0]
+    for i in range(1, len(market)):
+        double.append(double[-1] * (1 + 2 * (market[i] / market[i - 1] - 1)))
+    assert _beta(double, market) == 2.0
+    assert _beta([100] * 6, market) == 0.0  # kas saja: tidak terpengaruh pasar
+    assert _beta(market, [100] * 6) is None

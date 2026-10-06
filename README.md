@@ -10,7 +10,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
 - 🤖 **Auto-trading berbasis sinyal** (khusus akun simulasi) dengan stop-loss, take-profit, cooldown & log keputusan
 - 🔔 **Notifikasi Telegram** saat muncul sinyal BELI/JUAL baru (dan saat bot auto-trading bertransaksi)
-- 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, vs beli & tahan
+- 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, beta, vs **IHSG** & vs beli & tahan
 - 🔌 Arsitektur **adapter broker**: Paper Trading (aktif), Stockbit & Pluang (lihat batasan di bawah)
 - 🛡️ Pengaman: batas nilai order per % ekuitas, live trading mati secara default + konfirmasi per order
 
@@ -120,8 +120,12 @@ stop-loss/take-profit, cooldown, dan maks. posisi diperlakukan persis seperti bo
   di harga **open hari berikutnya** (default). Opsi "close hari sinyal" tersedia tapi lebih optimistis.
 - Data diambil lebih panjang dari periode agar indikator sudah siap di hari pertama.
 - **Hasil:** total return, CAGR, max drawdown, Sharpe, win rate, profit factor, fee, persentase
-  waktu berinvestasi, grafik ekuitas vs **beli & tahan** (bobot sama, tanpa fee), rincian per saham
-  dan per transaksi.
+  waktu berinvestasi, rincian per saham dan per transaksi.
+- **Dua pembanding** di grafik ekuitas dan kartu metrik:
+  - **IHSG** (`^JKSE`): bila modal yang sama diinvestasikan ke indeks pasar. Ditampilkan juga
+    selisih return, drawdown IHSG, dan **beta** (1 = strategi bergerak seperti IHSG, 0 = tidak
+    terpengaruh pasar). Bila data IHSG gagal diambil, backtest tetap jalan dengan catatan.
+  - **Beli & tahan**: semua saham yang diuji dibeli bobot sama di awal periode (tanpa fee).
 - Jika hasilnya cocok, klik **Terapkan ke auto-trading** untuk memakai simbol & parameter yang sama.
 
 Batasan: memakai candle harian, mengabaikan slippage, likuiditas/volume, ARA/ARB, dan antrean order.

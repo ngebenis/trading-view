@@ -1,16 +1,20 @@
 """Server API + UI. Jalankan: uvicorn app.main:app --reload"""
+import asyncio
+import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .autotrader import AutoTrader
+from .autotrader import AutoTrader, is_idx_market_open
 from .chart_data import build_chart
 from .db import Database
 from .backtest import PERIOD_DAYS, BacktestRequest, run_backtest
@@ -115,14 +119,11 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         return {"market_data_provider": provider.name, "live_trading_enabled": settings.enable_live_trading,
                 "lot_size": LOT_SIZE, "buy_fee_pct": settings.buy_fee_pct, "sell_fee_pct": settings.sell_fee_pct,
                 "max_position_pct": settings.max_position_pct,
-                "ara_pcts": ARA_PCTS, "arb_pcts": ARB_PCTS}
+                "ara_pcts": ARA_PCTS, "arb_pcts": ARB_PCTS,
+                "live_focus_seconds": settings.live_focus_seconds, "live_watch_seconds": settings.live_watch_seconds}
 
-    @app.get("/api/quote/{symbol}")
-    def quote(symbol: str):
-        try:
-            q = provider.quote(symbol).to_dict()
-        except MarketDataError as exc:
-            raise HTTPException(502, str(exc))
+    def quote_payload(symbol: str) -> dict:
+        q = provider.quote(symbol).to_dict()
         q["tradingview_symbol"] = tradingview_symbol(symbol)
         q["tradingview_url"] = tradingview_url(symbol)
         q["stockbit_url"] = stockbit_url(symbol)
@@ -132,7 +133,57 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         q["reference_price"] = q["prev_close"]
         q["arb"], q["ara"] = limits if limits else (None, None)
         q["limit_status"] = limit_status(q["price"], limits)  # "ARA" / "ARB" / None
+        q["server_time"] = time.time()
+        q["market_open"] = is_idx_market_open(datetime.now(timezone.utc))
+        # Seberapa jauh data tertinggal dari waktu sekarang (detik), bila sumber memberi waktu transaksi.
+        q["data_age_seconds"] = round(q["server_time"] - q["market_time"]) if q.get("market_time") else None
         return q
+
+    @app.get("/api/quote/{symbol}")
+    def quote(symbol: str):
+        try:
+            return quote_payload(symbol)
+        except MarketDataError as exc:
+            raise HTTPException(502, str(exc))
+
+    # ---- mode live: Server-Sent Events -----------------------------------
+    @app.get("/api/stream")
+    async def stream(request: Request, symbols: str = Query(..., max_length=400), focus: str | None = None):
+        """Kirim event `quote` setiap kali harga berubah. Saham `focus` diperiksa tiap LIVE_FOCUS_SECONDS,
+        sisanya tiap LIVE_WATCH_SECONDS. Data diambil lewat cache provider, jadi banyak tab tidak
+        melipatgandakan permintaan ke sumber data."""
+        syms = list(dict.fromkeys(normalize_symbol(s) for s in symbols.split(",") if s.strip()))[:30]
+        if not syms:
+            raise HTTPException(400, "Isi minimal satu simbol")
+        focus_sym = normalize_symbol(focus) if focus else None
+
+        async def events():
+            due = {s: 0.0 for s in syms}
+            last_sent: dict[str, tuple] = {}
+            last_beat = started = time.monotonic()
+            yield f"retry: 5000\nevent: hello\ndata: {json.dumps({'symbols': syms, 'focus': focus_sym})}\n\n"
+            while not await request.is_disconnected():
+                now = time.monotonic()
+                if now - started > settings.live_stream_max_seconds:
+                    break  # akhiri koneksi lama; browser menyambung ulang sendiri (retry 5 dtk)
+                for s in [s for s, t in due.items() if t <= now]:
+                    due[s] = now + (settings.live_focus_seconds if s == focus_sym else settings.live_watch_seconds)
+                    try:
+                        q = await run_in_threadpool(quote_payload, s)
+                    except MarketDataError as exc:
+                        yield f"event: stream_error\ndata: {json.dumps({'symbol': s, 'detail': str(exc)})}\n\n"
+                        continue
+                    key = (q["price"], q.get("market_time"), q["limit_status"])
+                    if last_sent.get(s) != key:
+                        last_sent[s] = key
+                        yield f"event: quote\ndata: {json.dumps(q)}\n\n"
+                if now - last_beat > 15:  # jaga koneksi tetap hidup lewat proxy/tunnel
+                    last_beat = now
+                    yield ": ping\n\n"
+                await asyncio.sleep(0.5)
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/api/candles/{symbol}")
     def candles(symbol: str, range: str = Query("6mo"), interval: str = Query("1d")):
@@ -142,11 +193,13 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
             raise HTTPException(502, str(exc))
 
     @app.get("/api/chart/{symbol}")
-    def chart(symbol: str, range: str = Query("1y")):
+    def chart(symbol: str, range: str = Query("1y"), interval: str = Query("1d")):
         if range not in ("3mo", "6mo", "1y", "2y", "5y"):
             raise HTTPException(400, "Rentang harus salah satu dari 3mo, 6mo, 1y, 2y, 5y")
+        if interval not in ("1d", "1m", "5m", "15m"):
+            raise HTTPException(400, "Interval harus salah satu dari 1d, 1m, 5m, 15m")
         try:
-            return build_chart(provider, paper, symbol, range)
+            return build_chart(provider, paper, symbol, range, interval)
         except MarketDataError as exc:
             raise HTTPException(502, str(exc))
 

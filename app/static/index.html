@@ -35,6 +35,7 @@
         <span id="qPrice" class="q-price">—</span>
         <span id="qChange" class="q-change"></span>
         <span id="qLimits" class="q-limits"></span>
+        <span id="liveStatus" class="live-status" title="Status pembaruan harga"></span>
         <span class="links">
           <a id="lnkStockbit" target="_blank" rel="noopener">Stockbit ↗</a>
           <a id="lnkTradingView" target="_blank" rel="noopener">TradingView ↗</a>
@@ -46,6 +47,10 @@
           <button type="button" data-view="tv">TradingView</button>
         </div>
         <div id="chartLwControls" class="chart-controls">
+          <select id="chartIntervalSel" aria-label="Interval candle">
+            <option value="1d">Harian</option><option value="15m">15 mnt</option>
+            <option value="5m">5 mnt</option><option value="1m">1 mnt</option>
+          </select>
           <select id="chartRangeSel" aria-label="Rentang">
             <option value="3mo">3 bln</option><option value="6mo">6 bln</option><option value="1y">1 thn</option>
             <option value="2y">2 thn</option><option value="5y">5 thn</option>
@@ -359,6 +364,7 @@
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/chart.js"></script>
+  <script src="/static/live.js"></script>
   <script src="/static/backtest.js"></script>
   <script src="/static/notifications.js"></script>
   <script src="/static/fundamentals.js"></script>

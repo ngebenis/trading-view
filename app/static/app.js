@@ -59,6 +59,7 @@ async function loadSymbol(symbol) {
   $("#lnkStockbit").href = `https://stockbit.com/symbol/${symbol}`;
   $("#lnkTradingView").href = `https://www.tradingview.com/symbols/${tvSymbol(symbol).replace(":", "-")}/`;
   refreshOrderTicket();
+  window.liveResubscribe?.();
   if (!$("#fundPane").classList.contains("hidden")) window.loadFundamentals?.();
   renderWatchlist();
   (window.renderPriceChart || renderChart)(symbol);
@@ -68,17 +69,8 @@ async function loadSymbol(symbol) {
   try {
     const q = await api(`/api/quote/${symbol}`);
     if (symbol !== state.symbol) return; // pengguna sudah pindah saham
-    state.price = q.price;
-    state.quote = q;
-    renderLimits(q);
-    window.refreshLimitLines?.();
-    $("#qPrice").textContent = fmtPrice(q.price, symbol);
-    $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmtPrice(q.change, symbol)} (${fmt(q.change_pct, 2)}%)`;
-    $("#qChange").className = "q-change " + cls(q.change);
-    if (!$("#limitPrice").value || $("#limitPrice").dataset.symbol !== symbol) {
-      $("#limitPrice").value = q.price; $("#limitPrice").dataset.symbol = symbol;
-    }
-    updateEstimate();
+    renderQuote(q);
+    window.liveStatus?.(q);
   } catch (e) {
     state.price = null;
     $("#qPrice").textContent = "—"; $("#qChange").textContent = e.message; $("#qChange").className = "q-change down";
@@ -94,7 +86,10 @@ async function loadSymbol(symbol) {
 }
 
 // ---------- watchlist ----------
-function saveWatchlist() { localStorage.setItem("watchlist", JSON.stringify(state.watchlist)); }
+function saveWatchlist() {
+  localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
+  window.liveResubscribe?.();
+}
 
 function renderWatchlist() {
   const ul = $("#watchlist");
@@ -118,9 +113,7 @@ async function refreshWatchPrices() {
     const el = document.querySelector(`.wl-price[data-s="${s}"]`);
     if (!el) return;
     try {
-      const q = await api(`/api/quote/${s}`);
-      el.innerHTML = `${limitBadge(q.limit_status)}${fmtPrice(q.price, s)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
-      el.className = "wl-price " + cls(q.change_pct);
+      renderWatchQuote(s, await api(`/api/quote/${s}`));
     } catch { el.textContent = "n/a"; }
   }));
 }
@@ -128,8 +121,7 @@ async function refreshWatchPrices() {
 async function refreshIhsgTicker() {
   const el = $("#ihsgTicker");
   try {
-    const q = await api("/api/quote/IHSG");
-    el.innerHTML = `IHSG <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
+    renderIhsg(await api("/api/quote/IHSG"));
   } catch { el.innerHTML = "IHSG <b>n/a</b>"; }
 }
 
@@ -141,6 +133,39 @@ function setSide(side) {
   btn.textContent = side === "BUY" ? "Beli" : "Jual";
   btn.className = "primary " + (side === "BUY" ? "buy" : "sell");
   updateEstimate();
+}
+
+// Bar harga saham yang sedang dibuka (dipakai saat memuat & setiap pembaruan live).
+function renderQuote(q, live = false) {
+  const prev = state.quote && state.quote.symbol === q.symbol ? state.quote.price : null;
+  state.price = q.price;
+  state.quote = q;
+  renderLimits(q);
+  window.refreshLimitLines?.();
+  $("#qPrice").textContent = fmtPrice(q.price, q.symbol);
+  $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmtPrice(q.change, q.symbol)} (${fmt(q.change_pct, 2)}%)`;
+  $("#qChange").className = "q-change " + cls(q.change);
+  if (live && prev != null && prev !== q.price) { // kedipkan harga saat berubah
+    const el = $("#qPrice");
+    el.classList.remove("flash-up", "flash-down");
+    void el.offsetWidth;
+    el.classList.add(q.price > prev ? "flash-up" : "flash-down");
+  }
+  if (!$("#limitPrice").value || $("#limitPrice").dataset.symbol !== q.symbol) {
+    $("#limitPrice").value = q.price; $("#limitPrice").dataset.symbol = q.symbol;
+  }
+  updateEstimate();
+}
+
+function renderWatchQuote(s, q) {
+  const el = document.querySelector(`.wl-price[data-s="${s}"]`);
+  if (!el) return;
+  el.innerHTML = `${limitBadge(q.limit_status)}${fmtPrice(q.price, s)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
+  el.className = "wl-price " + cls(q.change_pct);
+}
+
+function renderIhsg(q) {
+  $("#ihsgTicker").innerHTML = `IHSG <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
 }
 
 // Batas Auto Rejection hari ini (dihitung server dari harga penutupan sebelumnya).
@@ -376,7 +401,11 @@ async function init() {
   loadSymbol(state.symbol);
   $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
   refreshIhsgTicker();
-  setInterval(() => { refreshWatchPrices(); refreshIhsgTicker(); loadAccount(); window.refreshPriceChart?.(); }, 60_000);
+  // Harga diperbarui lewat mode live (live.js); polling ini hanya cadangan bila koneksi live putus.
+  setInterval(() => {
+    if (!window.liveConnected?.()) { refreshWatchPrices(); refreshIhsgTicker(); }
+    loadAccount(); window.refreshPriceChart?.();
+  }, 60_000);
   setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
 }
 

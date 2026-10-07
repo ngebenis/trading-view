@@ -4,6 +4,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 
 - 📈 Grafik candlestick **Lightweight Charts** dengan EMA, volume & **penanda transaksi** (akun simulasi / backtest), plus widget **TradingView** (`IDX:<KODE>`)
 - 💹 Harga & histori dari Yahoo Finance (`<KODE>.JK`), atau data demo offline
+- ⚡ **Mode live**: harga, watchlist, IHSG & candle terakhir diperbarui otomatis (Server-Sent Events), grafik intraday 1/5/15 menit
 - 📉 Pantau **IHSG** & **LQ45**: ticker IHSG di header, grafik, sinyal teknikal & notifikasi Telegram
 - 📑 **Analisis fundamental** dari laporan keuangan resmi IDX (XBRL): PER, PBV, ROE, DER, pertumbuhan laba
 - 🧠 Sinyal teknikal otomatis (RSI, EMA 12/26, MACD, Bollinger Band) → BELI / JUAL / TAHAN
@@ -64,6 +65,25 @@ candlestick harian, EMA 12/26, volume, dan **penanda transaksi**:
 Arahkan kursor ke candle untuk melihat OHLC, volume, EMA, dan rincian transaksi di hari itu. Pilih
 rentang 3 bulan – 5 tahun. Tombol **TradingView** di atas grafik beralih ke widget TradingView
 (indikator lengkap, tanpa penanda). Pilihan tampilan & rentang diingat di browser.
+
+## ⚡ Mode live
+
+Harga diperbarui otomatis tanpa memuat ulang halaman: server mengambil harga terbaru dan
+mengirimkannya ke browser lewat **Server-Sent Events** (`/api/stream`).
+
+- Saham yang sedang dibuka: tiap ±`LIVE_FOCUS_SECONDS` (10 dtk); watchlist & IHSG: tiap ±`LIVE_WATCH_SECONDS` (30 dtk).
+  Harga berkedip hijau/merah saat berubah; candle terakhir di grafik ikut bergerak.
+- Grafik **intraday** 1 / 5 / 15 menit (pilihan "Harian" untuk candle harian), jam dalam WIB, lengkap dengan penanda transaksi.
+- Indikator status di samping harga: `● LIVE · jam update · data tertunda ±x mnt dari bursa` — dihitung dari
+  waktu transaksi terakhir yang dilaporkan sumber data, jadi Anda tahu persis seberapa tertinggal datanya.
+- Koneksi dijeda saat tab tidak aktif, dan beberapa tab berbagi cache yang sama, agar tidak membebani sumber data.
+
+**Seberapa "real-time"?** Mode live membuat aplikasi selalu menampilkan data terbaru *yang tersedia*,
+tetapi Yahoo Finance (gratis) untuk saham IDX umumnya **tertunda ±10–15 menit** dari bursa. Data
+real-time sesungguhnya hanya tersedia lewat feed berlisensi (layanan data IDX / vendor data pasar /
+API resmi sekuritas). Bila Anda punya akses seperti itu, cukup buat provider baru dengan metode
+`quote()` dan `candles()` seperti di `app/market_data.py` — mode live, grafik, bot & notifikasi langsung
+memakainya. Dengan `MARKET_DATA_PROVIDER=demo`, harga demo bergerak sepanjang jam bursa untuk mencoba mode live.
 
 ## 🚦 ARA / ARB (Auto Rejection)
 
@@ -313,7 +333,8 @@ tests/               Unit & API test
 | GET | `/api/quote/{kode}` | Harga terakhir |
 | GET | `/api/candles/{kode}?range=6mo&interval=1d` | Data OHLCV |
 | GET | `/api/analysis/{kode}` | Sinyal teknikal |
-| GET | `/api/chart/{kode}?range=1y` | Candle, EMA 12/26 & penanda transaksi akun simulasi |
+| GET | `/api/chart/{kode}?range=1y&interval=1d` | Candle (harian atau `1m`/`5m`/`15m`), EMA 12/26 & penanda transaksi |
+| GET | `/api/stream?symbols=BBCA,TLKM&focus=BBCA` | Mode live (Server-Sent Events): event `quote` setiap harga berubah |
 | GET | `/api/brokers` | Daftar broker & statusnya |
 | GET | `/api/account?broker=paper` | Saldo, posisi, P/L |
 | GET/POST | `/api/orders` | Riwayat / kirim order |

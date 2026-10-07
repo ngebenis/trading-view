@@ -6,7 +6,13 @@
   const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, v); } catch { /* abaikan */ } };
 
-  const view = { mode: pref("chartView", "lw"), range: pref("chartRange", "1y"), markers: "paper" };
+  const view = { mode: pref("chartView", "lw"), range: pref("chartRange", "1y"), interval: pref("chartInterval", "1d"),
+                 markers: "paper" };
+  const WIB_OFFSET = 7 * 3600; // waktu intraday dari server sudah digeser +7 jam agar sumbu menampilkan WIB
+  const intraday = () => view.interval !== "1d";
+  // Kunci waktu bar: "YYYY-MM-DD" (harian) atau detik (intraday, sudah +WIB).
+  const timeKey = (t) => (typeof t === "object" && t !== null)
+    ? `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}` : t;
   let chart = null, candles = null, volume = null, ema12 = null, ema26 = null, markerApi = null, avgLine = null;
   let data = null, markerByDay = new Map(), loadedFor = null, limitLines = [];
 
@@ -75,6 +81,7 @@
   }
 
   function backtestMarkers() {
+    if (intraday()) return []; // transaksi backtest memakai candle harian
     const trades = window.getBacktestTrades?.(data.symbol) || [];
     const days = data.bars.map((b) => b.time);
     const out = [];
@@ -119,7 +126,9 @@
     const p = (v) => fmtPrice(v, data.symbol);
     const chg = bar.close - bar.open;
     $("#chartLegend").innerHTML =
-      `<span class="muted">${new Date(bar.time + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</span>
+      `<span class="muted">${typeof bar.time === "number"
+        ? new Date(bar.time * 1000).toLocaleString("id-ID", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + " WIB"
+        : new Date(bar.time + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</span>
        O <b>${p(bar.open)}</b> H <b>${p(bar.high)}</b> L <b>${p(bar.low)}</b> C <b class="${chg >= 0 ? "up" : "down"}">${p(bar.close)}</b>
        <span class="muted">Vol ${fmt(bar.volume / 100)} lot</span>
        <span class="lg"><i class="sw s1"></i>EMA12 ${extra.e12 != null ? p(extra.e12) : "—"}</span>
@@ -141,8 +150,7 @@
       bar = data.bars[data.bars.length - 1];
       e12 = data.ema12.at(-1)?.value; e26 = data.ema26.at(-1)?.value;
     }
-    const time = typeof bar.time === "string" ? bar.time
-      : `${bar.time.year}-${String(bar.time.month).padStart(2, "0")}-${String(bar.time.day).padStart(2, "0")}`;
+    const time = timeKey(bar.time);
     readout({ ...bar, time }, { e12, e26, trades: markerByDay.get(time) });
   }
 
@@ -151,13 +159,18 @@
     const msg = $("#chartMsg");
     if (!LWC) { msg.textContent = "Pustaka grafik gagal dimuat."; return; }
     try {
-      data = await api(`/api/chart/${symbol}?range=${view.range}`);
+      data = await api(`/api/chart/${symbol}?range=${view.range}&interval=${view.interval}`);
     } catch (e) {
       destroy(); msg.textContent = e.message; $("#chartLegend").innerHTML = ""; return;
     }
     if (symbol !== state.symbol) return; // pengguna sudah pindah saham
     msg.textContent = "";
     if (!chart) build();
+    chart.applyOptions({ timeScale: { timeVisible: intraday(), secondsVisible: false } });
+    $("#chartRangeSel").disabled = intraday();
+    if (!data.bars.length) {
+      msg.textContent = intraday() ? "Belum ada data intraday (bursa belum buka hari ini?)" : "Tidak ada data";
+    }
     const precision = isIndex(symbol) ? 2 : 0;
     candles.applyOptions({ priceFormat: { type: "price", precision, minMove: precision ? 0.01 : 1 } });
     candles.setData(data.bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
@@ -172,6 +185,29 @@
     loadedFor = symbol;
     onCrosshair({});
     $("#chartMarkerSel").querySelector('option[value="backtest"]').disabled = !(window.getBacktestTrades?.(symbol) || []).length;
+  }
+
+  // Mode live: perbarui (atau tambah) candle terakhir dari harga terbaru tanpa memuat ulang grafik.
+  function liveUpdate(q) {
+    if (!data || !candles || view.mode !== "lw" || q.symbol !== data.symbol || !data.bars.length || !q.market_time) return;
+    const last = data.bars[data.bars.length - 1];
+    let t;
+    if (intraday()) {
+      t = Math.floor((q.market_time + WIB_OFFSET) / data.bar_seconds) * data.bar_seconds;
+    } else {
+      t = new Date((q.market_time + WIB_OFFSET) * 1000).toISOString().slice(0, 10);
+    }
+    if (t < last.time) return; // data lama
+    let bar;
+    if (t === last.time) {
+      bar = { ...last, high: Math.max(last.high, q.price), low: Math.min(last.low, q.price), close: q.price };
+      data.bars[data.bars.length - 1] = bar;
+    } else {
+      bar = { time: t, open: q.price, high: q.price, low: q.price, close: q.price, volume: 0 };
+      data.bars.push(bar);
+    }
+    candles.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+    onCrosshair({});
   }
 
   function showMode() {
@@ -209,6 +245,11 @@
     const rangeSel = $("#chartRangeSel");
     rangeSel.value = view.range;
     rangeSel.onchange = () => { view.range = rangeSel.value; save("chartRange", view.range); loadedFor = null; draw(state.symbol); };
+    const intervalSel = $("#chartIntervalSel");
+    intervalSel.value = view.interval;
+    intervalSel.onchange = () => {
+      view.interval = intervalSel.value; save("chartInterval", view.interval); loadedFor = null; draw(state.symbol);
+    };
     $("#chartMarkerSel").onchange = (e) => { view.markers = e.target.value; applyMarkers(); onCrosshair({}); };
     // Warna grafik mengikuti tema terang/gelap.
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -219,6 +260,7 @@
   init();
   window.renderPriceChart = render;
   window.refreshPriceChart = refresh;
+  window.liveUpdateChart = liveUpdate;
   window.refreshLimitLines = applyLimitLines;
   window.showBacktestOnChart = showBacktest;
 })();

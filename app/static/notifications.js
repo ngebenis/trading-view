@@ -28,6 +28,9 @@
     f.elements.weekly_enabled.checked = c.weekly_enabled;
     f.elements.weekly_day.value = String(c.weekly_day);
     f.elements.weekly_time.value = c.weekly_time;
+    f.elements.monthly_enabled.checked = c.monthly_enabled;
+    f.elements.monthly_day.value = String(c.monthly_day);
+    f.elements.monthly_time.value = c.monthly_time;
     f.elements.bot_token.disabled = st.token_from_env;
     f.elements.chat_id.disabled = st.chat_id_from_env;
     $("#tokenHint").textContent = st.token_from_env ? "Diatur lewat TELEGRAM_BOT_TOKEN di .env" : "Disimpan lokal di database data/app.db";
@@ -52,8 +55,9 @@
         ` · pindaian terakhir ${time(st.last_run)}` +
         (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "") +
         (st.report_schedule ? ` · laporan harian ${st.report_schedule}` : "") +
-        (st.weekly_schedule ? ` · laporan mingguan ${st.weekly_schedule}` : "");
-    $("#notifReportSend").disabled = $("#notifWeeklySend").disabled = !st.configured;
+        (st.weekly_schedule ? ` · laporan mingguan ${st.weekly_schedule}` : "") +
+        (st.monthly_schedule ? ` · laporan bulanan ${st.monthly_schedule}` : "");
+    for (const id of ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend"]) $(id).disabled = !st.configured;
 
     const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL",
                      MOVE: "GERAK 24J", TARGET: "TARGET", ORDER: "ORDER", REPORT: "LAPORAN" };
@@ -89,6 +93,9 @@
       weekly_enabled: f.elements.weekly_enabled.checked,
       weekly_day: Number(f.elements.weekly_day.value),
       weekly_time: f.elements.weekly_time.value || "16:30",
+      monthly_enabled: f.elements.monthly_enabled.checked,
+      monthly_day: Number(f.elements.monthly_day.value),
+      monthly_time: f.elements.monthly_time.value || "16:45",
     };
     if (!f.elements.bot_token.disabled) body.bot_token = f.elements.bot_token.value;
     if (!f.elements.chat_id.disabled) body.chat_id = f.elements.chat_id.value;
@@ -133,12 +140,12 @@
     $("#notifUseCryptoWatch").onclick = () => { $("#notifForm").elements.crypto_symbols.value = (window.cryptoWatchlist?.() || []).join(", "); };
     $("#notifTest").onclick = () => action("test", () => "Pesan uji terkirim — cek Telegram Anda");
     let shownPeriod = null;
-    for (const id of ["#notifReportSend", "#notifWeeklySend"]) {
+    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan" };
+    for (const id of ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend"]) {
       const period = $(id).dataset.period;
-      $(id).onclick = () => action(`report?period=${period}`,
-        () => `Laporan ${period === "weekly" ? "mingguan" : "harian"} terkirim — cek Telegram Anda`);
+      $(id).onclick = () => action(`report?period=${period}`, () => `Laporan ${PERIOD[period]} terkirim — cek Telegram Anda`);
     }
-    for (const id of ["#notifReportPreview", "#notifWeeklyPreview"]) {
+    for (const id of ["#notifReportPreview", "#notifWeeklyPreview", "#notifMonthlyPreview"]) {
       $(id).onclick = async () => {
         const box = $("#reportPreview"), period = $(id).dataset.period;
         if (!box.classList.contains("hidden") && shownPeriod === period) { box.classList.add("hidden"); return; }

@@ -212,6 +212,10 @@ class WatchConfig:
     weekly_enabled: bool = False
     weekly_day: int = 4
     weekly_time: str = "16:30"
+    # Laporan bulanan: tanggal (0 = hari terakhir bulan, atau 1–28) & jam (WIB).
+    monthly_enabled: bool = False
+    monthly_day: int = 0
+    monthly_time: str = "16:45"
     notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
     # Crypto (Binance): pasar 24 jam, jadi tidak terpengaruh "hanya saat jam bursa".
     crypto_symbols: list[str] = field(default_factory=list)
@@ -234,7 +238,7 @@ class WatchConfig:
             errors.append(f"Candle crypto harus salah satu dari {', '.join(KLINE_INTERVALS)}")
         if not 0 <= self.crypto_move_pct <= 100:
             errors.append("Ambang gerakan crypto harus 0–100%")
-        for attr, label in (("report_time", "harian"), ("weekly_time", "mingguan")):
+        for attr, label in (("report_time", "harian"), ("weekly_time", "mingguan"), ("monthly_time", "bulanan")):
             try:
                 hh, mm = (int(x) for x in str(getattr(self, attr)).split(":"))
                 if not (0 <= hh < 24 and 0 <= mm < 60):
@@ -244,6 +248,8 @@ class WatchConfig:
                 errors.append(f"Jam laporan {label} harus berformat JJ:MM (mis. 16:15)")
         if self.weekly_day not in range(7):
             errors.append("Hari laporan mingguan harus 0 (Senin) – 6 (Minggu)")
+        if self.monthly_day not in range(29):
+            errors.append("Tanggal laporan bulanan harus 0 (hari terakhir bulan) atau 1–28")
         if self.interval_seconds < 60:
             errors.append("Interval minimal 60 detik")
         if self.min_buy_score < 1 or self.max_sell_score > -1:
@@ -520,4 +526,6 @@ class SignalWatcher:
             "report_last_sent": self.reporter.last_sent if self.reporter else None,
             "weekly_schedule": self.reporter.next_weekly() if self.reporter else None,
             "weekly_last_sent": self.reporter.last_weekly_sent if self.reporter else None,
+            "monthly_schedule": self.reporter.next_monthly() if self.reporter else None,
+            "monthly_last_sent": self.reporter.last_monthly_sent if self.reporter else None,
         }

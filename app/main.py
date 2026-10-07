@@ -28,6 +28,7 @@ from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, 
 from .crypto_api import register_crypto
 from .idx_vendors import build_provider
 from .market_data import MarketDataError
+from .price_alerts import AlertError, PriceAlertWatcher
 from .price_feed import FeedError, FeedProvider, PriceFeed, pine_script
 from .notifier import NotifierError, SignalWatcher
 from .webhooks import TradingViewWebhook, WebhookError
@@ -84,12 +85,14 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
                 pass
         if crypto["bot"].config.enabled and crypto["bot"].target.available():
             crypto["bot"].start()
+        price_alerts.start()
         yield
         if autotrader.running:
             autotrader._stop.set()
         if crypto["bot"].running:
             crypto["bot"]._stop.set()
         watcher.shutdown()
+        price_alerts.shutdown()
 
     app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
     app.state.autotrader = autotrader
@@ -98,6 +101,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     app.state.feed = feed
     crypto = register_crypto(app, settings, db, watcher, binance_http)
     app.state.crypto = crypto
+    price_alerts = PriceAlertWatcher(provider, watcher, db, settings.price_alert_seconds)
+    app.state.price_alerts = price_alerts
     app.state.db = db
 
     # Pengaman tunnel: request yang lewat proxy/tunnel (ngrok, Cloudflare Tunnel, dll) membawa header
@@ -368,6 +373,45 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         if not watcher.status()["configured"]:
             raise HTTPException(400, "Isi bot token dan chat ID Telegram terlebih dahulu")
         return notifier_call(watcher.scan)
+
+    # ---- alert harga (Telegram) -----------------------------------------
+    class AlertBody(BaseModel):
+        symbol: str
+        target: float = Field(gt=0)
+        direction: str | None = None  # above / below / kosong = otomatis dari harga sekarang
+        note: str = ""
+        repeat: bool = False
+        cooldown_minutes: int = 30
+
+    def alert_call(fn):
+        try:
+            return fn()
+        except AlertError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/alerts")
+    def alerts_status():
+        return price_alerts.status()
+
+    @app.post("/api/alerts")
+    def alerts_add(body: AlertBody):
+        alert, notes = alert_call(lambda: price_alerts.add(body.symbol, body.target, body.direction, body.note,
+                                                           body.repeat, body.cooldown_minutes))
+        return {**price_alerts.status(), "created": alert.id, "notes": notes}
+
+    @app.delete("/api/alerts/{alert_id}")
+    def alerts_remove(alert_id: str):
+        alert_call(lambda: price_alerts.remove(alert_id))
+        return price_alerts.status()
+
+    @app.post("/api/alerts/{alert_id}/rearm")
+    def alerts_rearm(alert_id: str):
+        alert_call(lambda: price_alerts.rearm(alert_id))
+        return price_alerts.status()
+
+    @app.post("/api/alerts/check")
+    def alerts_check():
+        return {**price_alerts.status(), "fired": price_alerts.check()}
 
     # ---- fundamental (laporan keuangan XBRL IDX) -----------------------
     MAX_UPLOAD = 30 * 1024 * 1024

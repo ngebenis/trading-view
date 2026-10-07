@@ -45,7 +45,7 @@
         (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "");
 
     const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL",
-                     MOVE: "GERAK 24J" };
+                     MOVE: "GERAK 24J", TARGET: "TARGET" };
     $("#notifLog").innerHTML = `<tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Keterangan</th><th>Telegram</th></tr>` +
       (st.history.length ? st.history.map((h) => `<tr><td>${new Date(h.time * 1000).toLocaleString("id-ID")}</td>
         <td class="kind kind-${h.kind}">${labels[h.kind] || h.kind}</td><td>${escapeHtml(h.symbol)}</td>

@@ -326,6 +326,26 @@ Cara kerja:
 - Opsional: setiap transaksi bot auto-trading (beli/jual, stop-loss, take-profit) ikut dikirim.
 - Opsi "Hanya saat jam bursa" melewati pemindaian **saham** di luar jam perdagangan IDX.
 
+**🎯 Alert harga (target).** Di panel order (saham maupun crypto) isi *Target harga* lalu klik **Pasang**.
+Arah ditentukan otomatis dari harga sekarang: target di atas harga → dikabarkan saat **naik tembus**, di bawah →
+saat **turun tembus**. Harga dicek tiap `PRICE_ALERT_SECONDS` (bawaan 30 detik) — terpisah dari pemindaian sinyal
+dan tetap berjalan walau pemantau sinyal dihentikan; cukup bot token & chat ID terisi.
+- Alert biasa terkirim **sekali** lalu selesai (bisa *Aktifkan lagi* di tab Notifikasi). Alert **berulang** aktif lagi
+  setelah harga kembali ke sisi semula, dengan jeda minimal 30 menit antar pesan.
+- Untuk saham IDX, aplikasi mengingatkan bila target di luar rentang ARB–ARA hari ini (baru bisa tercapai di hari
+  bursa berikutnya). Ketepatan waktu mengikuti sumber data: Yahoo tertunda ±10–15 menit, Invezgo/GoAPI/price feed
+  TradingView lebih segar.
+- Daftar semua alert (status, kapan terpicu, catatan) ada di tab **Notifikasi**.
+
+```
+🎯 BBCA naik tembus 9.500
+Harga: 9.525 (+1,33% hari ini)
+Dipasang saat harga 9.000, 07/10 09:15 WIB
+Sumber: invezgo · transaksi 10:14:00 WIB
+Catatan: breakout resistance
+TradingView · Stockbit
+```
+
 **Sinyal crypto (Binance).** Isi kolom *Pasangan crypto yang dipantau* (mis. `BTCUSDT, ETHUSDT`, atau klik
 **Pakai watchlist crypto**); tombol *Notifikasi Telegram* di tampilan Crypto langsung membuka pengaturan ini.
 Bot token, chat ID, interval, ambang skor & tombol Mulai dipakai bersama dengan saham.
@@ -448,6 +468,7 @@ app/
   notifier.py        Notifikasi Telegram & pemantau sinyal
   webhooks.py        Penerima webhook alert TradingView
   idx_vendors.py     Penyedia data IDX berbayar (Invezgo, GoAPI) + cadangan otomatis
+  price_alerts.py    Alert harga (target) ke Telegram untuk saham & crypto
   price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
   binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
@@ -492,6 +513,9 @@ tests/               Unit & API test
 | GET | `/api/webhooks` | Status, template pesan & log alert |
 | PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
+| GET/POST | `/api/alerts` | Daftar / pasang alert harga (`symbol`, `target`, `note`, `repeat`) |
+| DELETE | `/api/alerts/{id}` | Hapus alert |
+| POST | `/api/alerts/{id}/rearm` · `/api/alerts/check` | Aktifkan lagi alert / periksa sekarang |
 | GET | `/api/feed` | Status price feed TradingView per saham |
 | PUT | `/api/feed/config` | Aktif/nonaktif, daftar saham, batas data basi |
 | GET | `/api/feed/pine` | Skrip Pine siap salin (memuat kode rahasia) |

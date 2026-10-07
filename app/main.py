@@ -17,7 +17,8 @@ from .backtest import PERIOD_DAYS, BacktestRequest, run_backtest
 from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType, PaperBroker,
                       PluangBroker, Side, StockbitBroker)
 from .config import Settings, settings as default_settings
-from .idx_rules import (LOT_SIZE, is_index, normalize_symbol, round_to_tick, stockbit_url, tick_size,
+from .idx_rules import (ARA_PCTS, ARB_PCTS, LOT_SIZE, is_index, limit_status, normalize_symbol, price_limits,
+                        round_to_tick, stockbit_url, tick_size,
                         tradingview_symbol, tradingview_url)
 from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
 from .market_data import MarketDataError, get_provider
@@ -100,12 +101,6 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
             raise HTTPException(404, f"Broker '{name}' tidak dikenal")
         return brokers[name]
 
-    def price_of(symbol: str) -> float:
-        try:
-            return provider.quote(symbol).price
-        except MarketDataError as exc:
-            raise HTTPException(502, str(exc))
-
     def prices_for(symbols) -> dict[str, float]:
         out = {}
         for s in symbols:
@@ -119,7 +114,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     def config():
         return {"market_data_provider": provider.name, "live_trading_enabled": settings.enable_live_trading,
                 "lot_size": LOT_SIZE, "buy_fee_pct": settings.buy_fee_pct, "sell_fee_pct": settings.sell_fee_pct,
-                "max_position_pct": settings.max_position_pct}
+                "max_position_pct": settings.max_position_pct,
+                "ara_pcts": ARA_PCTS, "arb_pcts": ARB_PCTS}
 
     @app.get("/api/quote/{symbol}")
     def quote(symbol: str):
@@ -132,6 +128,10 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         q["stockbit_url"] = stockbit_url(symbol)
         q["is_index"] = is_index(symbol)
         q["tick_size"] = None if q["is_index"] else tick_size(q["price"])
+        limits = None if q["is_index"] else price_limits(q["prev_close"])
+        q["reference_price"] = q["prev_close"]
+        q["arb"], q["ara"] = limits if limits else (None, None)
+        q["limit_status"] = limit_status(q["price"], limits)  # "ARA" / "ARB" / None
         return q
 
     @app.get("/api/candles/{symbol}")
@@ -191,7 +191,11 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
                 raise HTTPException(403, "Live trading dinonaktifkan (set ENABLE_LIVE_TRADING=true).")
             if not req.confirm_live:
                 raise HTTPException(400, "Order live butuh konfirmasi eksplisit (confirm_live=true).")
-        market = price_of(req.symbol)
+        try:
+            quote = provider.quote(req.symbol)
+        except MarketDataError as exc:
+            raise HTTPException(502, str(exc))
+        market, limits = quote.price, price_limits(quote.prev_close)
 
         # Batas risiko: nilai order beli maksimal MAX_POSITION_PCT dari ekuitas.
         if req.side == Side.BUY and isinstance(b, PaperBroker):
@@ -203,6 +207,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
                                          f"{settings.max_position_pct:g}% ekuitas (Rp{limit:,.0f}).")
         order = Order(req.symbol, req.side, req.lots, req.order_type, req.limit_price)
         try:
+            if isinstance(b, PaperBroker):
+                return b.place_order(order, market, limits).to_dict()
             return b.place_order(order, market).to_dict()
         except BrokerNotAvailable as exc:
             raise HTTPException(503, str(exc))

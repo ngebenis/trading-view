@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .autotrader import WIB, is_idx_market_open, rupiah
-from .idx_rules import is_index, normalize_symbol, stockbit_url, tradingview_url
+from .idx_rules import is_index, limit_status, normalize_symbol, price_limits, stockbit_url, tradingview_url
 from .market_data import MarketDataError
 from .strategy import analyze
 
@@ -88,6 +88,19 @@ def format_signal(symbol: str, action: str, analysis: dict, quote=None) -> str:
     return "\n".join(lines)
 
 
+def format_limit(symbol: str, status: str, quote, limits: tuple[int, int]) -> str:
+    arb, ara = limits
+    icon, label, level = ("🚀", "MENYENTUH ARA", ara) if status == "ARA" else ("🧊", "MENYENTUH ARB", arb)
+    sign = "+" if quote.change_pct >= 0 else ""
+    pct = f"{quote.change_pct:.2f}".replace(".", ",")
+    return "\n".join([
+        f"{icon} <b>{html.escape(symbol)} {label}</b>",
+        f"Harga: <b>{rupiah(quote.price)}</b> ({sign}{pct}%) · batas {rupiah(level)}",
+        f"Harga acuan {rupiah(quote.prev_close)} · rentang hari ini {rupiah(arb)} – {rupiah(ara)}",
+        "", _links(symbol),
+    ])
+
+
 def format_trade(entry: dict) -> str:
     icon = "🛒" if entry.get("side") == "BUY" else "💰"
     return (f"{icon} <b>Auto-trading (simulasi)</b>\n"
@@ -106,6 +119,7 @@ class WatchConfig:
     max_sell_score: int = -2
     market_hours_only: bool = False
     notify_trades: bool = True  # kirim juga transaksi bot auto-trading
+    notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
 
     def validate(self) -> None:
         self.symbols = sorted({normalize_symbol(s) for s in self.symbols if s.strip()})
@@ -135,6 +149,7 @@ class SignalWatcher:
         self.clock = clock
         self.history: deque[dict] = deque(db.recent_logs("notifications", 200) if db else (), maxlen=200)
         self.last_action: dict[str, str] = {}
+        self.last_limit: dict[str, str] = {}  # simbol -> "YYYY-MM-DD:ARA" yang sudah dikabarkan
         self.last_run: float | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -146,13 +161,15 @@ class SignalWatcher:
         raw = dict(self.db.get_setting("notifications") or {}) if self.db is not None else {}
         if raw:
             self.last_action = raw.pop("_last_action", {})
+            self.last_limit = raw.pop("_last_limit", {})
             known = {f.name for f in fields(WatchConfig)}
             return WatchConfig(**{k: v for k, v in raw.items() if k in known})
         return WatchConfig()
 
     def _save(self) -> None:
         if self.db is not None:
-            self.db.set_setting("notifications", {**asdict(self.config), "_last_action": self.last_action})
+            self.db.set_setting("notifications", {**asdict(self.config), "_last_action": self.last_action,
+                                                  "_last_limit": self.last_limit})
 
     @property
     def token(self) -> str:  # .env lebih diutamakan daripada isian UI
@@ -241,6 +258,8 @@ class SignalWatcher:
                 except MarketDataError as exc:
                     out.append(self._record("WARN", sym, f"Data tidak tersedia: {exc}"))
                     continue
+                if cfg.notify_limits and not is_index(sym):
+                    out.extend(self._check_limit(sym, quote, now))
                 score = analysis["score"]
                 action = "BUY" if score >= cfg.min_buy_score else "SELL" if score <= cfg.max_sell_score else "HOLD"
                 prev = self.last_action.get(sym)
@@ -261,6 +280,21 @@ class SignalWatcher:
             if not out:
                 out.append(self._record("INFO", "-", f"Tidak ada sinyal baru ({len(cfg.symbols)} simbol dipindai)"))
             return out
+
+    def _check_limit(self, sym: str, quote, now: float) -> list[dict]:
+        """Kabarkan bila saham menyentuh ARA/ARB — sekali per saham per hari per jenis."""
+        limits = price_limits(quote.prev_close)
+        status = limit_status(quote.price, limits)
+        if not status:
+            return []
+        key = f"{datetime.fromtimestamp(now, WIB):%Y-%m-%d}:{status}"
+        if self.last_limit.get(sym) == key:
+            return []
+        ok, err = self._send(format_limit(sym, status, quote, limits))
+        if not ok:
+            return [self._record("ERROR", sym, f"Notifikasi {status} gagal dikirim: {err}")]
+        self.last_limit[sym] = key
+        return [self._record(status, sym, f"Menyentuh {status} @ {rupiah(quote.price)}", sent=True)]
 
     def send_test(self) -> None:
         when = datetime.fromtimestamp(self.clock(), WIB).strftime("%d/%m/%Y %H:%M")

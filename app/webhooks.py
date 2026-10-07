@@ -21,7 +21,7 @@ from collections import deque
 from dataclasses import asdict, dataclass, field, fields
 
 from .brokers import BrokerError, Order, OrderType, PaperBroker, Side
-from .idx_rules import LOT_SIZE, is_index, normalize_symbol, round_to_tick
+from .idx_rules import LOT_SIZE, is_index, normalize_symbol, price_limits, round_to_tick
 from .market_data import MarketDataError
 
 ACTIONS = {
@@ -220,8 +220,10 @@ class TradingViewWebhook:
         sym = alert.symbol
         if is_index(sym):
             return self._record("SKIP", sym, "Indeks tidak bisa diperdagangkan, order dilewati")
+        limits = None
         try:
-            price = self.provider.quote(sym).price
+            quote = self.provider.quote(sym)
+            price, limits = quote.price, price_limits(quote.prev_close)
         except MarketDataError as exc:
             if not alert.price:
                 return self._record("ERROR", sym, f"Harga tidak tersedia: {exc}")
@@ -249,7 +251,7 @@ class TradingViewWebhook:
         side = Side.BUY if alert.action == "BUY" else Side.SELL
         order = Order(sym, side, lots, OrderType.MARKET, source="webhook", created_at=self.clock())
         try:
-            self.broker.place_order(order, price)
+            self.broker.place_order(order, price, limits)
         except BrokerError as exc:
             return self._record("ERROR", sym, f"Order {side.value} ditolak: {exc}")
         return self._record("ORDER", sym, f"{side.value} {lots} lot @ {order.fill_price:g} (simulasi)",

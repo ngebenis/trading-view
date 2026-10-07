@@ -7,7 +7,7 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 📉 Pantau **IHSG** & **LQ45**: ticker IHSG di header, grafik, sinyal teknikal & notifikasi Telegram
 - 📑 **Analisis fundamental** dari laporan keuangan resmi IDX (XBRL): PER, PBV, ROE, DER, pertumbuhan laba
 - 🧠 Sinyal teknikal otomatis (RSI, EMA 12/26, MACD, Bollinger Band) → BELI / JUAL / TAHAN
-- 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual
+- 🛒 Order **Market** & **Limit** dengan aturan IDX: 1 lot = 100 lembar, fraksi harga, fee beli/jual, **ARA/ARB**
 - 💼 Portofolio, P/L, riwayat order, pembatalan order
 - 🤖 **Auto-trading berbasis sinyal** (khusus akun simulasi) dengan stop-loss, take-profit, cooldown & log keputusan
 - 📡 **Webhook alert TradingView**: alert dari strategi/indikator TradingView → log, Telegram, atau order simulasi
@@ -64,6 +64,31 @@ candlestick harian, EMA 12/26, volume, dan **penanda transaksi**:
 Arahkan kursor ke candle untuk melihat OHLC, volume, EMA, dan rincian transaksi di hari itu. Pilih
 rentang 3 bulan – 5 tahun. Tombol **TradingView** di atas grafik beralih ke widget TradingView
 (indikator lengkap, tanpa penanda). Pilihan tampilan & rentang diingat di browser.
+
+## 🚦 ARA / ARB (Auto Rejection)
+
+Batas naik (ARA) dan turun (ARB) harian dihitung dari **harga acuan** (penutupan sesi sebelumnya),
+lalu dibulatkan ke fraksi harga: ARA ke bawah, ARB ke atas (tidak di bawah Rp50).
+
+| Harga acuan | ARA | ARB |
+|---|---|---|
+| Rp50 – Rp200 | 35% | 15% |
+| > Rp200 – Rp5.000 | 25% | 15% |
+| > Rp5.000 | 20% | 15% |
+
+Nilai di atas adalah aturan IDX sejak April 2025. **Aturan bursa bisa berubah** — sesuaikan lewat
+`.env` (`AUTO_REJECTION_ARA=35,25,20`, `AUTO_REJECTION_ARB=15,15,15`). Papan khusus (mis. Full Call
+Auction / pemantauan khusus) dengan batas berbeda belum didukung.
+
+- **Tampilan:** batas "ARB … · ARA …" di bar harga, label **ARA**/**ARB** saat harga menyentuh batas
+  (juga di watchlist), dan garis titik-titik ARA/ARB di grafik.
+- **Simulasi seperti bursa:** order limit di luar rentang ARB–ARA ditolak; beli market saat saham
+  **ARA** (tidak ada penjual) dan jual market saat **ARB** (tidak ada pembeli) ditolak. Berlaku untuk order
+  manual, bot auto-trading, webhook, dan **backtest** (harga acuan = penutupan hari sebelumnya,
+  sehingga transaksi di hari ARA/ARB tidak tereksekusi seperti di dunia nyata). Form order
+  menampilkan peringatan sebelum dikirim.
+- **Telegram:** pemantau sinyal juga mengabarkan saat saham yang dipantau menyentuh ARA/ARB
+  (sekali per saham per hari; bisa dimatikan lewat `notify_limits`).
 
 ## 📉 Indeks IHSG & LQ45
 

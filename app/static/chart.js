@@ -8,13 +8,27 @@
 
   const view = { mode: pref("chartView", "lw"), range: pref("chartRange", "1y"), markers: "paper" };
   let chart = null, candles = null, volume = null, ema12 = null, ema26 = null, markerApi = null, avgLine = null;
-  let data = null, markerByDay = new Map(), loadedFor = null;
+  let data = null, markerByDay = new Map(), loadedFor = null, limitLines = [];
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   function destroy() {
     if (chart) { chart.remove(); chart = null; }
     markerApi = avgLine = null;
+    limitLines = [];
+  }
+
+  // Garis batas ARA/ARB hari ini (dari quote di app.js). Tidak memengaruhi skala otomatis grafik.
+  function applyLimitLines() {
+    if (!candles) return;
+    limitLines.forEach((l) => candles.removePriceLine(l));
+    limitLines = [];
+    const q = state.quote;
+    if (!q || q.ara == null || !data || q.symbol !== data.symbol) return;
+    for (const [price, title, color] of [[q.ara, "ARA", css("--up")], [q.arb, "ARB", css("--down")]]) {
+      limitLines.push(candles.createPriceLine({ price, title, color, lineWidth: 1,
+        lineStyle: LWC.LineStyle.Dotted, axisLabelVisible: true }));
+    }
   }
 
   function build() {
@@ -153,6 +167,7 @@
     ema12.setData(data.ema12);
     ema26.setData(data.ema26);
     applyMarkers();
+    applyLimitLines();
     if (!keepView || loadedFor !== symbol) chart.timeScale().fitContent();
     loadedFor = symbol;
     onCrosshair({});
@@ -204,5 +219,6 @@
   init();
   window.renderPriceChart = render;
   window.refreshPriceChart = refresh;
+  window.refreshLimitLines = applyLimitLines;
   window.showBacktestOnChart = showBacktest;
 })();

@@ -2,7 +2,7 @@
 import threading
 import time
 
-from ..idx_rules import LOT_SIZE, is_index, is_valid_price, normalize_symbol, round_to_tick
+from ..idx_rules import LOT_SIZE, check_auto_rejection, is_index, is_valid_price, normalize_symbol, round_to_tick
 from .base import Broker, BrokerError, Order, OrderStatus, OrderType, Side
 
 
@@ -82,7 +82,8 @@ class PaperBroker(Broker):
         raise BrokerError(msg)
 
     # ---- Broker API --------------------------------------------------
-    def place_order(self, order: Order, market_price: float) -> Order:
+    def place_order(self, order: Order, market_price: float, limits: tuple[int, int] | None = None) -> Order:
+        """`limits` = (ARB, ARA) hari ini; bila diisi, order yang melanggar batas ditolak seperti di bursa."""
         with self._lock:
             order.symbol = normalize_symbol(order.symbol)
             if is_index(order.symbol):
@@ -96,6 +97,10 @@ class PaperBroker(Broker):
                 exec_price = order.limit_price
             else:
                 exec_price = round_to_tick(market_price)
+            reason = check_auto_rejection(order.side.value, order.order_type.value, market_price,
+                                          order.limit_price, limits)
+            if reason:
+                return self._reject(order, reason)
 
             shares = order.lots * LOT_SIZE
             if order.side == Side.BUY:

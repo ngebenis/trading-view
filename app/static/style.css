@@ -180,7 +180,22 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 @keyframes flashDown { from { background: var(--down-bg); } to { background: transparent; } }
 .flash-up { animation: flashUp .9s ease-out; border-radius: 4px; }
 .flash-down { animation: flashDown .9s ease-out; border-radius: 4px; }
-@media (prefers-reduced-motion: reduce) { .live-status.on .dot-live, .flash-up, .flash-down { animation: none; } }
+/* kode saham berkedip dua kali saat harga berubah (box-shadow agar tata letak tidak bergeser) */
+@keyframes blinkUp {
+  0%, 50% { background: var(--up-bg); box-shadow: 0 0 0 3px var(--up-bg); color: var(--up); }
+  25%, 75%, 100% { background: transparent; box-shadow: 0 0 0 3px transparent; }
+}
+@keyframes blinkDown {
+  0%, 50% { background: var(--down-bg); box-shadow: 0 0 0 3px var(--down-bg); color: var(--down); }
+  25%, 75%, 100% { background: transparent; box-shadow: 0 0 0 3px transparent; }
+}
+.blink-up { animation: blinkUp 1.2s steps(1, end); border-radius: 3px; }
+.blink-down { animation: blinkDown 1.2s steps(1, end); border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .live-status.on .dot-live, .flash-up, .flash-down { animation: none; }
+  /* tanpa kedip: cukup warna sesaat yang memudar */
+  .blink-up { animation: flashUp 1.2s ease-out; } .blink-down { animation: flashDown 1.2s ease-out; }
+}
 .hidden { display: none !important; }
 @media (max-width: 1000px) {
   .lw-wrap { height: 380px; }

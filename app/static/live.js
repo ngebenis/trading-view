@@ -9,12 +9,15 @@
 
   // Teks status: jujur soal seberapa tertinggal data dari bursa.
   function describeAge(q) {
-    if (!q || q.data_age_seconds == null) return "";
+    if (!q) return "";
+    const primary = state.config.market_data_provider;
+    const via = q.source === "tradingview" ? " (TradingView)"
+      : primary && q.source && q.source !== primary ? ` (cadangan: ${q.source})` : "";
+    if (q.data_age_seconds == null) return via.trim();
     const age = q.data_age_seconds + (lastAt ? (Date.now() - lastAt) / 1000 : 0);
     if (!q.market_open) {
-      return `bursa tutup · transaksi terakhir ${hhmmss(q.market_time * 1000)}`;
+      return `bursa tutup · transaksi terakhir ${hhmmss(q.market_time * 1000)}${via}`;
     }
-    const via = q.source === "tradingview" ? " (TradingView)" : "";
     if (age < 90) return "data hampir real-time" + via;
     return `data tertunda ±${Math.round(age / 60)} mnt dari bursa${via}`;
   }

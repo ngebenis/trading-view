@@ -22,7 +22,14 @@ _load_dotenv(ROOT / ".env")
 
 @dataclass(frozen=True)
 class Settings:
-    market_data_provider: str = os.getenv("MARKET_DATA_PROVIDER", "yahoo")
+    market_data_provider: str = os.getenv("MARKET_DATA_PROVIDER", "yahoo")  # yahoo / demo / invezgo / goapi
+    # Penyedia data IDX berbayar (API key Anda sendiri). Data yang tidak tersedia / saat gangguan
+    # diambil dari VENDOR_FALLBACK (yahoo / demo / none).
+    invezgo_api_key: str = os.getenv("INVEZGO_API_KEY", "")
+    invezgo_base_url: str = os.getenv("INVEZGO_BASE_URL", "https://api.invezgo.com")
+    goapi_api_key: str = os.getenv("GOAPI_API_KEY", "")
+    goapi_base_url: str = os.getenv("GOAPI_BASE_URL", "https://api.goapi.io")
+    vendor_fallback: str = os.getenv("VENDOR_FALLBACK", "yahoo")
     paper_starting_cash: float = float(os.getenv("PAPER_STARTING_CASH", "100000000"))
     buy_fee_pct: float = float(os.getenv("BUY_FEE_PCT", "0.15"))
     sell_fee_pct: float = float(os.getenv("SELL_FEE_PCT", "0.25"))

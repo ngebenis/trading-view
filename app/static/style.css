@@ -140,7 +140,7 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 .hook-grid { display: grid; gap: 10px; margin-bottom: 12px; }
 .hook-grid input[readonly] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .kind-RECEIVED { color: var(--accent); } .kind-ORDER { color: var(--up); } .kind-NOTIFY { color: var(--accent); }
-.kind-SKIP { color: var(--muted); }
+.kind-SKIP { color: var(--muted); } .kind-MOVE { color: var(--accent); }
 .kind-AUTH, .kind-SECURITY { color: var(--down); }
 #hookLog th, #hookLog td { text-align: left; }
 #hookLog td:nth-child(4) { white-space: normal; width: 100%; }

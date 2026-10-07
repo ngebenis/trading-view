@@ -34,6 +34,7 @@
     $("#btCopyAuto").onclick = copyFromAuto;
     $("#btForm").onsubmit = run;
     $("#btApply").onclick = applyToAuto;
+    loadHistory();
     window.addEventListener("resize", () => lastResult && drawChart(lastResult.equity_curve));
   }
 
@@ -59,6 +60,7 @@
     try {
       lastResult = await api("/api/backtest", { method: "POST", body: JSON.stringify(body) });
       render(lastResult);
+      loadHistory();
       msg.textContent = "";
       $("#btApply").classList.remove("hidden");
     } catch (e) {
@@ -74,6 +76,50 @@
       await api("/api/autotrader/config", { method: "PUT", body: JSON.stringify({ symbols: p.symbols, ...p.strategy }) });
       $("#btMsg").className = "msg ok"; $("#btMsg").textContent = "Pengaturan auto-trading diperbarui";
       window.loadAuto?.(true);
+    } catch (e) { $("#btMsg").className = "msg err"; $("#btMsg").textContent = e.message; }
+  }
+
+  // ---------- riwayat (tersimpan di SQLite) ----------
+  const PERIOD_LABEL = { "6mo": "6 bln", "1y": "1 thn", "2y": "2 thn", "5y": "5 thn" };
+
+  async function loadHistory() {
+    let items = [];
+    try { items = await api("/api/backtests"); } catch { return; }
+    $("#btHistoryCount").textContent = `(${items.length})`;
+    $("#btHistory").innerHTML = `<tr><th>Waktu</th><th>Saham</th><th>Periode</th><th>Return</th><th>vs IHSG</th>
+      <th>Max DD</th><th>Transaksi</th><th>Strategi</th><th></th></tr>` +
+      (items.length ? items.map((b) => {
+        const s = b.strategy, vs = b.ihsg_return_pct == null ? null : b.total_return_pct - b.ihsg_return_pct;
+        return `<tr><td>${new Date(b.created_at * 1000).toLocaleString("id-ID")}</td>
+          <td title="${escapeHtml(b.symbols.join(", "))}">${escapeHtml(b.symbols.slice(0, 4).join(", "))}${b.symbols.length > 4 ? ` +${b.symbols.length - 4}` : ""}</td>
+          <td>${PERIOD_LABEL[b.period] || b.period}</td>
+          <td class="${cls(b.total_return_pct)}">${pct(b.total_return_pct)}</td><td class="${cls(vs)}">${pct(vs)}</td>
+          <td>${fmt(b.max_drawdown_pct, 1)}%</td><td>${b.trades ?? "—"}</td>
+          <td class="muted">beli≥${s.min_buy_score} jual≤${s.max_sell_score} SL ${s.stop_loss_pct}% TP ${s.take_profit_pct}%</td>
+          <td><button type="button" data-open="${b.id}">Buka</button> <button type="button" data-del="${b.id}" title="Hapus">✕</button></td></tr>`;
+      }).join("") : `<tr><td colspan="9" style="color:var(--muted)">Belum ada backtest tersimpan.</td></tr>`);
+    $("#btHistory").querySelectorAll("[data-open]").forEach((b) => { b.onclick = () => openSaved(b.dataset.open); });
+    $("#btHistory").querySelectorAll("[data-del]").forEach((b) => { b.onclick = async () => {
+      if (!confirm("Hapus backtest ini dari riwayat?")) return;
+      await api(`/api/backtests/${b.dataset.del}`, { method: "DELETE" }).catch(() => {});
+      loadHistory();
+    }; });
+  }
+
+  async function openSaved(id) {
+    try {
+      lastResult = await api(`/api/backtests/${id}`);
+      const p = lastResult.params, f = $("#btForm");
+      f.elements.symbols.value = p.symbols.join(", ");
+      f.elements.period.value = p.period;
+      f.elements.initial_cash.value = p.initial_cash;
+      f.elements.execution.value = p.execution;
+      fillStrategy(p.strategy);
+      render(lastResult);
+      $("#btApply").classList.remove("hidden");
+      $("#btMsg").className = "msg ok";
+      $("#btMsg").textContent = `Backtest #${id} dibuka dari riwayat`;
+      $("#btResult").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) { $("#btMsg").className = "msg err"; $("#btMsg").textContent = e.message; }
   }
 

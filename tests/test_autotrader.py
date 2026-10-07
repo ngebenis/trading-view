@@ -4,6 +4,7 @@ from datetime import datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db import Database
 from app.autotrader import AutoTrader, WIB, is_idx_market_open
 from app.brokers import PaperBroker
 from app.config import Settings
@@ -44,9 +45,9 @@ class Clock:
 
 @pytest.fixture
 def env(tmp_path):
-    broker = PaperBroker(tmp_path / "acct.json", 100_000_000, 0.15, 0.25)
+    broker = PaperBroker(Database(tmp_path / "app.db"), 100_000_000, 0.15, 0.25)
     provider, clock = FakeProvider(), Clock()
-    trader = AutoTrader(broker, provider, tmp_path / "auto.json", max_position_pct=20, clock=clock)
+    trader = AutoTrader(broker, provider, Database(tmp_path / "app.db"), max_position_pct=20, clock=clock)
     trader.update_config({"symbols": ["AAAA"], "position_pct": 10, "stop_loss_pct": 5,
                           "take_profit_pct": 10, "cooldown_minutes": 60})
     return trader, broker, provider, clock
@@ -117,7 +118,7 @@ def test_config_validation_and_persistence(env, tmp_path):
     with pytest.raises(ValueError, match="Interval"):
         trader.update_config({"interval_seconds": 5})
     trader.update_config({"symbols": ["bbca.jk", "tlkm", ""]})
-    reloaded = AutoTrader(broker, provider, tmp_path / "auto.json", 20, clock)
+    reloaded = AutoTrader(broker, provider, Database(tmp_path / "app.db"), 20, clock)
     assert reloaded.config.symbols == ["BBCA", "TLKM"]
 
 

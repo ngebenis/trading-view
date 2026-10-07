@@ -3,6 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db import Database
 from app.brokers import PaperBroker
 from app.config import Settings
 from app.main import create_app
@@ -32,7 +33,7 @@ def env(tmp_path):
     watcher.update_config({"bot_token": TOKEN, "chat_id": "42"})
     broker = PaperBroker(None, 100_000_000, 0.15, 0.25)
     clock = {"t": 1_800_000_000.0}
-    hook = TradingViewWebhook(broker, provider, tmp_path / "webhook.json", 20, notifier=watcher, clock=lambda: clock["t"])
+    hook = TradingViewWebhook(broker, provider, Database(tmp_path / "app.db"), 20, notifier=watcher, clock=lambda: clock["t"])
     hook.update_config({"enabled": True})
     return hook, broker, tg, clock
 
@@ -149,7 +150,7 @@ def test_secret_management_and_template(env, tmp_path):
     hook.update_config({"secret": "x" * 20})  # tidak bisa diganti lewat config
     assert hook.config.secret == old and len(old) >= 24
     assert hook.regenerate_secret() != old
-    reloaded = TradingViewWebhook(broker, None, tmp_path / "webhook.json", 20)
+    reloaded = TradingViewWebhook(broker, None, Database(tmp_path / "app.db"), 20)
     assert reloaded.config.secret == hook.config.secret and reloaded.config.enabled
     tpl = hook.message_template().replace("{{ticker}}", "BBCA").replace("{{strategy.order.action}}", "buy") \
         .replace("{{close}}", "9025").replace("{{strategy.order.comment}}", "x")

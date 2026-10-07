@@ -1,8 +1,6 @@
 """Paper trading: simulasi beli/jual dengan aturan IDX (lot, fraksi harga, fee)."""
-import json
 import threading
 import time
-from pathlib import Path
 
 from ..idx_rules import LOT_SIZE, is_index, is_valid_price, normalize_symbol, round_to_tick
 from .base import Broker, BrokerError, Order, OrderStatus, OrderType, Side
@@ -13,11 +11,12 @@ class PaperBroker(Broker):
     display_name = "Paper Trading (Simulasi)"
     is_live = False
 
-    def __init__(self, path: Path | None, starting_cash: float, buy_fee_pct: float, sell_fee_pct: float,
+    def __init__(self, db, starting_cash: float, buy_fee_pct: float, sell_fee_pct: float,
                  clock=time.time):
-        self.path = path
+        self.db = db  # app.db.Database, atau None untuk akun in-memory (dipakai backtest)
         self.clock = clock
-        self.starting_cash = starting_cash
+        self.configured_cash = starting_cash  # modal awal untuk reset (PAPER_STARTING_CASH)
+        self.starting_cash = starting_cash   # modal awal akun yang sedang berjalan (dasar P/L)
         self.buy_fee = buy_fee_pct / 100
         self.sell_fee = sell_fee_pct / 100
         self._lock = threading.Lock()
@@ -25,29 +24,26 @@ class PaperBroker(Broker):
 
     # ---- persistence -------------------------------------------------
     def _load(self) -> None:
-        if self.path is not None and self.path.exists():
-            raw = json.loads(self.path.read_text())
-            self.cash = raw["cash"]
-            self.positions = raw["positions"]
-            self._orders = [Order.from_dict(o) for o in raw["orders"]]
-        else:
+        saved = self.db.load_account(self.name) if self.db is not None else None
+        if saved is None:
             self.reset()
-
-    def _save(self) -> None:
-        if self.path is None:  # mode in-memory (dipakai backtest)
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({
-            "cash": self.cash,
-            "positions": self.positions,
-            "orders": [o.to_dict() for o in self._orders],
-        }, indent=2))
+        self.cash, self.starting_cash, self.positions, orders = saved
+        self._orders = [Order.from_dict(o) for o in orders]
+
+    def _save(self, changed: list[Order] = ()) -> None:
+        """Simpan kas, posisi & order yang berubah (satu transaksi SQLite)."""
+        if self.db is not None:
+            self.db.save_account(self.name, self.cash, self.starting_cash, self.positions,
+                                 [o.to_dict() for o in changed])
 
     def reset(self) -> None:
+        self.starting_cash = self.configured_cash
         self.cash = self.starting_cash
         self.positions: dict[str, dict] = {}  # symbol -> {"shares", "avg_price"}
         self._orders: list[Order] = []
-        self._save()
+        if self.db is not None:
+            self.db.reset_account(self.name, self.starting_cash)
 
     # ---- helpers -----------------------------------------------------
     def _reserved_shares(self, symbol: str) -> int:
@@ -82,7 +78,7 @@ class PaperBroker(Broker):
     def _reject(self, order: Order, msg: str) -> Order:
         order.status, order.message = OrderStatus.REJECTED, msg
         self._orders.append(order)
-        self._save()
+        self._save([order])
         raise BrokerError(msg)
 
     # ---- Broker API --------------------------------------------------
@@ -117,7 +113,7 @@ class PaperBroker(Broker):
             if marketable:
                 self._fill(order, exec_price)
             self._orders.append(order)
-            self._save()
+            self._save([order])
             return order
 
     def match_open_orders(self, prices: dict[str, float]) -> list[Order]:
@@ -132,7 +128,7 @@ class PaperBroker(Broker):
                     self._fill(o, o.limit_price)
                     filled.append(o)
             if filled:
-                self._save()
+                self._save(filled)
         return filled
 
     def cancel_order(self, order_id: str) -> Order:
@@ -142,7 +138,7 @@ class PaperBroker(Broker):
                     if o.status != OrderStatus.OPEN:
                         raise BrokerError("Hanya order OPEN yang bisa dibatalkan")
                     o.status = OrderStatus.CANCELLED
-                    self._save()
+                    self._save([o])
                     return o
         raise BrokerError("Order tidak ditemukan")
 

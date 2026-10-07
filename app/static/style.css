@@ -160,6 +160,9 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 .chart-trades { flex-basis: 100%; color: var(--text); font-weight: 600; }
 .chart-msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; color: var(--muted); z-index: 2; }
 .chart-msg:empty { display: none; }
+.bt-history { margin: 12px 0; }
+.bt-history summary { cursor: pointer; font-weight: 600; margin-bottom: 6px; }
+#btHistory td, #btHistory th { white-space: nowrap; }
 .hidden { display: none !important; }
 @media (max-width: 1000px) {
   .lw-wrap { height: 380px; }

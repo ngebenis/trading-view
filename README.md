@@ -29,6 +29,26 @@ Buka http://localhost:8000. Tanpa internet, set `MARKET_DATA_PROVIDER=demo` di `
 
 Test: `pytest`
 
+## 🗄️ Penyimpanan data (SQLite)
+
+Semua data tersimpan di satu file **SQLite** `data/app.db` (bawaan Python, tanpa server; lokasi bisa
+diubah dengan `DATABASE_PATH`). Isinya:
+
+| Tabel | Isi |
+|---|---|
+| `accounts`, `positions`, `orders` | Akun simulasi: kas, posisi & seluruh riwayat order |
+| `settings` | Pengaturan auto-trading, Telegram (termasuk sinyal terakhir yang terkirim) & webhook |
+| `logs` | Log keputusan bot, riwayat notifikasi & alert webhook — tetap ada setelah restart (disimpan 180 hari) |
+| `backtests` | Setiap hasil backtest — buka lagi lewat **Riwayat backtest** di tab Backtest |
+
+Laporan keuangan XBRL tetap berupa file di `data/fundamentals/XBRL/`.
+
+**Dari versi lama (JSON):** saat pertama dijalankan, `paper_account.json`, `autotrader.json`,
+`notifications.json` dan `webhook.json` di folder `data/` otomatis dipindahkan ke database lalu
+diganti nama menjadi `*.json.migrated` (tidak dihapus). **Backup:** salin `data/app.db` saat server
+mati, atau `sqlite3 data/app.db ".backup backup.db"` saat berjalan. Isinya bisa dibuka dengan alat
+SQLite apa pun (mis. DB Browser for SQLite).
+
 ## 📈 Grafik dengan penanda transaksi
 
 Grafik utama memakai [Lightweight Charts](https://github.com/tradingview/lightweight-charts)
@@ -123,7 +143,7 @@ Setiap siklus (default 5 menit), untuk setiap simbol yang dipantau:
 | Cooldown | 60 menit | Jeda per simbol setelah transaksi otomatis |
 | Hanya saat jam bursa | mati | Bila aktif: Sen–Kam 09:00–12:00 & 13:30–15:49, Jum 09:00–11:30 & 14:00–15:49 WIB |
 
-Status berjalan & pengaturan disimpan di `data/autotrader.json`, jadi bot otomatis lanjut
+Status berjalan & pengaturan disimpan di database (`data/app.db`), jadi bot otomatis lanjut
 setelah server di-restart. Order dari bot ditandai **🤖 auto** di riwayat order.
 Catatan: sinyal memakai candle harian, jadi biasanya hanya berubah sekali sehari;
 interval pendek terutama berguna untuk memantau stop-loss/take-profit.
@@ -169,7 +189,7 @@ tunnel, ada pengaman bawaan (`LOCAL_ONLY_GUARD=true`): request yang datang lewat
 5. Atur saham yang dipantau, lalu klik **Mulai**.
 
 Token & chat ID juga bisa diisi lewat `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) — nilai `.env`
-lebih diutamakan. Token yang diisi lewat UI disimpan lokal di `data/notifications.json` (tidak
+lebih diutamakan. Token yang diisi lewat UI disimpan lokal di database `data/app.db` (tidak
 di-commit) dan selalu disamarkan di API/UI.
 
 Cara kerja:
@@ -239,6 +259,7 @@ mereka, berisiko akun dibekukan, dan membahayakan keamanan dana Anda. Karena itu
 app/
   main.py            API FastAPI + penyajian UI
   config.py          Pengaturan dari .env
+  db.py              Penyimpanan SQLite (skema, migrasi dari JSON, log, riwayat backtest)
   idx_rules.py       Lot, fraksi harga, normalisasi kode saham
   market_data.py     Yahoo Finance & data demo
   indicators.py      SMA, EMA, RSI, MACD, Bollinger
@@ -251,7 +272,7 @@ app/
   fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
   brokers/
     base.py          Kontrak Broker & model Order
-    paper.py         Simulasi paper trading (tersimpan di data/paper_account.json)
+    paper.py         Simulasi paper trading (tersimpan di SQLite data/app.db)
     external.py      Kerangka adapter Stockbit & Pluang
   chart_data.py      Data grafik: candle, EMA & penanda transaksi
   static/            UI (HTML/CSS/JS, Lightweight Charts di static/vendor, widget TradingView)
@@ -286,7 +307,9 @@ tests/               Unit & API test
 | GET | `/api/webhooks` | Status, template pesan & log alert |
 | PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
-| POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) |
+| POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) — hasil disimpan |
+| GET | `/api/backtests` · `/api/backtests/{id}` | Riwayat backtest / hasil lengkap satu backtest |
+| DELETE | `/api/backtests/{id}` | Hapus backtest dari riwayat |
 
 > Disclaimer: sinyal dihasilkan otomatis dan bukan rekomendasi investasi. Data Yahoo untuk IDX
 > tertunda ±10–15 menit. Gunakan dengan risiko sendiri.

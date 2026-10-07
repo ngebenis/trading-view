@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db import Database
 from app.autotrader import WIB, AutoTrader
 from app.brokers import PaperBroker
 from app.config import Settings
@@ -62,7 +63,7 @@ class FakeProvider:
 @pytest.fixture
 def env(tmp_path):
     tg, provider = FakeTelegram(), FakeProvider()
-    watcher = SignalWatcher(provider, tmp_path / "n.json", http=tg.client(), clock=lambda: 1_800_000_000.0)
+    watcher = SignalWatcher(provider, Database(tmp_path / "app.db"), http=tg.client(), clock=lambda: 1_800_000_000.0)
     watcher.update_config({"bot_token": TOKEN, "chat_id": "42", "symbols": ["AAAA"]})
     return watcher, provider, tg
 
@@ -113,7 +114,7 @@ def test_state_persists_across_restart(env, tmp_path):
     watcher, provider, tg = env
     provider.set("AAAA", BUY)
     watcher.scan()
-    again = SignalWatcher(provider, tmp_path / "n.json", http=tg.client())
+    again = SignalWatcher(provider, Database(tmp_path / "app.db"), http=tg.client())
     again.scan()  # sinyal yang sama setelah restart tidak dikirim ulang
     assert len(tg.sent) == 1
 
@@ -135,7 +136,7 @@ def test_market_hours_only(env):
 
 
 def test_token_masking_and_env_priority(tmp_path):
-    w = SignalWatcher(FakeProvider(), tmp_path / "n.json", env_token="999:ENVTOKENENVTOKEN", env_chat_id="7")
+    w = SignalWatcher(FakeProvider(), Database(tmp_path / "app.db"), env_token="999:ENVTOKENENVTOKEN", env_chat_id="7")
     w.update_config({"bot_token": TOKEN})
     st = w.status()
     assert TOKEN not in json.dumps(st) and st["config"]["bot_token"] == "1234…MNOP"

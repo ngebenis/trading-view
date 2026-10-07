@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from .autotrader import AutoTrader
 from .chart_data import build_chart
+from .db import Database
 from .backtest import PERIOD_DAYS, BacktestRequest, run_backtest
 from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType, PaperBroker,
                       PluangBroker, Side, StockbitBroker)
@@ -47,13 +48,16 @@ class OrderRequest(BaseModel):
 
 def create_app(settings: Settings = default_settings, provider=None, telegram_http=None) -> FastAPI:
     provider = provider or get_provider(settings.market_data_provider)
-    paper = PaperBroker(settings.data_dir / "paper_account.json", settings.paper_starting_cash,
+    db = Database(settings.database_path or settings.data_dir / "app.db")
+    db.migrate_json(settings.data_dir, settings.paper_starting_cash)  # sekali, dari versi berbasis JSON
+    db.prune_logs(keep_days=180)
+    paper = PaperBroker(db, settings.paper_starting_cash,
                         settings.buy_fee_pct, settings.sell_fee_pct)
-    autotrader = AutoTrader(paper, provider, settings.data_dir / "autotrader.json", settings.max_position_pct)
-    watcher = SignalWatcher(provider, settings.data_dir / "notifications.json", settings.telegram_bot_token,
+    autotrader = AutoTrader(paper, provider, db, settings.max_position_pct)
+    watcher = SignalWatcher(provider, db, settings.telegram_bot_token,
                             settings.telegram_chat_id, http=telegram_http)
     autotrader.listeners.append(watcher.on_autotrader_log)
-    webhook = TradingViewWebhook(paper, provider, settings.data_dir / "webhook.json", settings.max_position_pct,
+    webhook = TradingViewWebhook(paper, provider, db, settings.max_position_pct,
                                  notifier=watcher)
     fundamentals = FundamentalsStore(Path(settings.fundamentals_xbrl_dir) if settings.fundamentals_xbrl_dir
                                      else settings.data_dir / "fundamentals" / "XBRL")
@@ -76,6 +80,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     app.state.autotrader = autotrader
     app.state.watcher = watcher
     app.state.webhook = webhook
+    app.state.db = db
 
     # Pengaman tunnel: request yang lewat proxy/tunnel (ngrok, Cloudflare Tunnel, dll) membawa header
     # penerusan. Request seperti itu hanya boleh ke endpoint webhook; UI & API lain hanya untuk lokal.
@@ -170,9 +175,9 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
             raise HTTPException(503, str(exc))
 
     @app.get("/api/orders")
-    def orders(broker: str = "paper"):
+    def orders(broker: str = "paper", limit: int = Query(500, ge=1, le=10000)):
         try:
-            return [o.to_dict() for o in get_broker(broker).orders()]
+            return [o.to_dict() for o in get_broker(broker).orders()[:limit]]
         except BrokerNotAvailable as exc:
             raise HTTPException(503, str(exc))
 
@@ -367,10 +372,29 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
             strategy=body.strategy,
         )
         try:
-            return run_backtest(req, provider, autotrader.config, settings.buy_fee_pct,
-                                settings.sell_fee_pct, settings.max_position_pct)
+            result = run_backtest(req, provider, autotrader.config, settings.buy_fee_pct,
+                                  settings.sell_fee_pct, settings.max_position_pct)
         except (TypeError, ValueError) as exc:
             raise HTTPException(400, str(exc))
+        result["id"] = db.save_backtest(result)  # simpan agar bisa dibuka & dibandingkan lagi
+        return result
+
+    @app.get("/api/backtests")
+    def backtests_list(limit: int = Query(50, ge=1, le=500)):
+        return db.list_backtests(limit)
+
+    @app.get("/api/backtests/{backtest_id}")
+    def backtests_get(backtest_id: int):
+        result = db.get_backtest(backtest_id)
+        if result is None:
+            raise HTTPException(404, "Backtest tidak ditemukan")
+        return result
+
+    @app.delete("/api/backtests/{backtest_id}")
+    def backtests_delete(backtest_id: int):
+        if not db.delete_backtest(backtest_id):
+            raise HTTPException(404, "Backtest tidak ditemukan")
+        return {"deleted": backtest_id}
 
     @app.get("/api/backtest/periods")
     def backtest_periods():

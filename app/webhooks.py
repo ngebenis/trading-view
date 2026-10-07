@@ -19,7 +19,6 @@ import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field, fields
-from pathlib import Path
 
 from .brokers import BrokerError, Order, OrderType, PaperBroker, Side
 from .idx_rules import LOT_SIZE, is_index, normalize_symbol, round_to_tick
@@ -107,23 +106,23 @@ def parse_alert(payload: dict) -> Alert:
 
 
 class TradingViewWebhook:
-    def __init__(self, broker: PaperBroker, provider, path: Path | None, max_position_pct: float,
+    def __init__(self, broker: PaperBroker, provider, db, max_position_pct: float,
                  notifier=None, clock=time.time):
         self.broker = broker
         self.provider = provider
-        self.path = path
+        self.db = db  # app.db.Database atau None
         self.max_position_pct = max_position_pct
         self.notifier = notifier  # SignalWatcher (punya .telegram() & .chat_id)
         self.clock = clock
-        self.log: deque[dict] = deque(maxlen=200)
+        self.log: deque[dict] = deque(db.recent_logs("webhook", 200) if db else (), maxlen=200)
         self._recent: dict[str, float] = {}
         self._lock = threading.Lock()
         self.config = self._load()
 
     # ---- konfigurasi -------------------------------------------------
     def _load(self) -> WebhookConfig:
-        if self.path is not None and self.path.exists():
-            raw = json.loads(self.path.read_text())
+        raw = self.db.get_setting("webhook") if self.db is not None else None
+        if raw:
             known = {f.name for f in fields(WebhookConfig)}
             return WebhookConfig(**{k: v for k, v in raw.items() if k in known})
         cfg = WebhookConfig()
@@ -132,10 +131,8 @@ class TradingViewWebhook:
         return cfg
 
     def _save(self) -> None:
-        if self.path is None:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(asdict(self.config), indent=2))
+        if self.db is not None:
+            self.db.set_setting("webhook", asdict(self.config))
 
     def update_config(self, data: dict) -> WebhookConfig:
         data = {k: v for k, v in data.items() if k != "secret"}  # rahasia hanya lewat regenerate
@@ -202,6 +199,8 @@ class TradingViewWebhook:
 
     def _record(self, kind: str, symbol: str, message: str, **extra) -> dict:
         entry = {"time": self.clock(), "kind": kind, "symbol": symbol, "message": message, **extra}
+        if self.db is not None:
+            entry["id"] = self.db.append_log("webhook", entry)
         self.log.appendleft(entry)
         return entry
 

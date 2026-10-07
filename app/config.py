@@ -36,6 +36,8 @@ class Settings:
     # Bila true, request lewat tunnel/proxy hanya boleh ke endpoint webhook (lihat README).
     local_only_guard: bool = os.getenv("LOCAL_ONLY_GUARD", "true").lower() != "false"
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
+    # Database SQLite; kosong = <DATA_DIR>/app.db
+    database_path: str = os.getenv("DATABASE_PATH", "")
 
 
 settings = Settings()

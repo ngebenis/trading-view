@@ -50,7 +50,7 @@ def test_api_index(tmp_path):
     client = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider()))
     q = client.get("/api/quote/^JKSE").json()
     assert q["symbol"] == "IHSG" and q["is_index"] is True and q["tick_size"] is None
-    assert q["tradingview_symbol"] == "IDX:COMPOSITE" and 5000 < q["price"] < 10000
+    assert q["tradingview_symbol"] == "IDX:COMPOSITE" and 1000 < q["price"] < 50000
     assert client.get("/api/analysis/IHSG").json()["action"] in {"BUY", "SELL", "HOLD"}
     r = client.post("/api/orders", json={"symbol": "IHSG", "side": "BUY", "lots": 1})
     assert r.status_code == 400 and "indeks" in r.json()["detail"]

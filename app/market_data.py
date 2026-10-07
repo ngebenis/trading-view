@@ -130,19 +130,30 @@ class DemoProvider:
 
     name = "demo"
 
-    def candles(self, symbol: str, range_: str = "6mo", interval: str = "1d") -> list[Candle]:
-        sym = normalize_symbol(symbol)
+    RANGE_DAYS = {"1mo": 22, "3mo": 66, "6mo": 130, "1y": 250, "2y": 500, "5y": 1250, "10y": 2500}
+    HISTORY_DAYS = 2500
+
+    def __init__(self):
+        self._cache: dict[tuple[str, int], list[Candle]] = {}
+
+    def _history(self, sym: str) -> list[Candle]:
+        """Satu deret harga per simbol (per hari); semua rentang adalah potongan ujungnya,
+        sehingga harga terakhir sama di grafik 1 bulan maupun 5 tahun."""
+        today = int(time.time()) // 86400 * 86400
+        key = (sym, today)
+        if key in self._cache:
+            return self._cache[key]
         seed = int(hashlib.sha256(sym.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
-        days = {"1mo": 22, "3mo": 66, "6mo": 130, "1y": 250, "2y": 500, "5y": 1250, "10y": 2500}.get(range_, 130)
         index = is_index(sym)
         price = 7000.0 if index else rng.choice([150, 450, 1200, 3500, 8000])
         rnd = (lambda x: round(x, 2)) if index else round_to_tick
-        today = int(time.time()) // 86400 * 86400
+        days = self.HISTORY_DAYS
         out = []
+        vol, base_drift = (0.008, 0.0001) if index else (0.018, 0.0004)  # indeks bergerak lebih tenang
         for i in range(days):
-            drift = 0.0004 + 0.002 * math.sin(i / 17 + seed % 7)
-            close = max(50.0, price * (1 + drift + rng.gauss(0, 0.018)))
+            drift = base_drift + (0.0006 if index else 0.002) * math.sin(i / 17 + seed % 7)
+            close = max(50.0, price * (1 + drift + rng.gauss(0, vol)))
             high = max(price, close) * (1 + abs(rng.gauss(0, 0.006)))
             low = min(price, close) * (1 - abs(rng.gauss(0, 0.006)))
             out.append(Candle(
@@ -150,7 +161,13 @@ class DemoProvider:
                 rnd(price), rnd(high), rnd(low), rnd(close), rng.randint(1_000_000, 50_000_000),
             ))
             price = close
+        self._cache = {k: v for k, v in self._cache.items() if k[1] == today}  # buang cache hari lain
+        self._cache[key] = out
         return out
+
+    def candles(self, symbol: str, range_: str = "6mo", interval: str = "1d") -> list[Candle]:
+        days = self.RANGE_DAYS.get(range_, 130)
+        return list(self._history(normalize_symbol(symbol))[-days:])
 
     def quote(self, symbol: str) -> Quote:
         candles = self.candles(symbol, "1mo")

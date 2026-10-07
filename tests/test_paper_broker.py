@@ -1,11 +1,12 @@
 import pytest
 
+from app.db import Database
 from app.brokers import BrokerError, Order, OrderStatus, OrderType, PaperBroker, Side
 
 
 @pytest.fixture
 def broker(tmp_path):
-    return PaperBroker(tmp_path / "acct.json", 10_000_000, buy_fee_pct=0.15, sell_fee_pct=0.25)
+    return PaperBroker(Database(tmp_path / "app.db"), 10_000_000, buy_fee_pct=0.15, sell_fee_pct=0.25)
 
 
 def test_market_buy_then_sell(broker):
@@ -46,5 +47,5 @@ def test_limit_order_rests_then_fills(broker):
 def test_cancel_and_persistence(broker, tmp_path):
     o = broker.place_order(Order("TLKM", Side.BUY, 1, OrderType.LIMIT, 2800), 2900)
     broker.cancel_order(o.id)
-    reloaded = PaperBroker(tmp_path / "acct.json", 10_000_000, 0.15, 0.25)
+    reloaded = PaperBroker(Database(tmp_path / "app.db"), 10_000_000, 0.15, 0.25)
     assert reloaded.orders()[0].status == OrderStatus.CANCELLED

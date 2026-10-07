@@ -6,13 +6,11 @@ Setiap siklus:
   3. Untuk simbol tanpa posisi: beli bila sinyal BELI dengan skor >= min_buy_score.
 Setiap simbol punya cooldown setelah transaksi otomatis agar tidak bolak-balik.
 """
-import json
 import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from .brokers import BrokerError, Order, OrderType, PaperBroker, Side
 from .idx_rules import LOT_SIZE, normalize_symbol, reject_indices, round_to_tick
@@ -72,15 +70,15 @@ class AutoTraderConfig:
 
 
 class AutoTrader:
-    def __init__(self, broker: PaperBroker, provider, path: Path | None, max_position_pct: float, clock=time.time):
+    def __init__(self, broker: PaperBroker, provider, db, max_position_pct: float, clock=time.time):
         self.broker = broker
         self.provider = provider
-        self.path = path
+        self.db = db  # app.db.Database, atau None (backtest: tidak ada yang disimpan)
         self.max_position_pct = max_position_pct
         self.clock = clock
-        self.log: deque[dict] = deque(maxlen=300)
+        self.log: deque[dict] = deque(db.recent_logs("autotrader", 300) if db else (), maxlen=300)
         self.listeners: list = []  # dipanggil untuk setiap entri log baru (mis. notifikasi Telegram)
-        self._seq = 0
+        self._seq = self.log[0]["id"] if self.log else 0
         self.last_run: float | None = None
         self.last_trade_at: dict[str, float] = {}
         self._cycle_lock = threading.Lock()
@@ -90,17 +88,15 @@ class AutoTrader:
 
     # ---- konfigurasi -------------------------------------------------
     def _load(self) -> AutoTraderConfig:
-        if self.path is not None and self.path.exists():
-            raw = json.loads(self.path.read_text())
+        raw = self.db.get_setting("autotrader") if self.db is not None else None
+        if raw:
             known = {f.name for f in fields(AutoTraderConfig)}
             return AutoTraderConfig(**{k: v for k, v in raw.items() if k in known})
         return AutoTraderConfig()
 
     def _save(self) -> None:
-        if self.path is None:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(asdict(self.config), indent=2))
+        if self.db is not None:
+            self.db.set_setting("autotrader", asdict(self.config))
 
     def update_config(self, data: dict) -> AutoTraderConfig:
         merged = {**asdict(self.config), **data, "enabled": self.config.enabled}
@@ -142,8 +138,10 @@ class AutoTrader:
 
     # ---- logika trading ----------------------------------------------
     def _log(self, level: str, symbol: str, message: str, **extra) -> None:
-        self._seq += 1
-        entry = {"id": self._seq, "time": self.clock(), "level": level, "symbol": symbol, "message": message, **extra}
+        entry = {"time": self.clock(), "level": level, "symbol": symbol, "message": message, **extra}
+        # id log = id baris SQLite (atau penghitung biasa tanpa database), selalu naik.
+        self._seq = self.db.append_log("autotrader", entry) if self.db is not None else self._seq + 1
+        entry = {"id": self._seq, **entry}
         self.log.appendleft(entry)
         for listener in self.listeners:
             try:

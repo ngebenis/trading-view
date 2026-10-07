@@ -61,7 +61,7 @@ async function loadSymbol(symbol) {
   refreshOrderTicket();
   if (!$("#fundPane").classList.contains("hidden")) window.loadFundamentals?.();
   renderWatchlist();
-  renderChart(symbol);
+  (window.renderPriceChart || renderChart)(symbol);
   $("#signal").textContent = "…"; $("#signal").className = "signal"; $("#reasons").innerHTML = "";
   try {
     const q = await api(`/api/quote/${symbol}`);
@@ -175,6 +175,7 @@ async function submitOrder(ev) {
       ? `Tereksekusi: ${o.side} ${o.symbol} ${o.lots} lot @ ${fmt(o.fill_price)}`
       : `Order ${o.order_type} ${o.side} ${o.symbol} terpasang (${o.status})`;
     loadAccount();
+    window.refreshPriceChart?.();
   } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
 }
 
@@ -346,7 +347,7 @@ async function init() {
   loadSymbol(state.symbol);
   $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
   refreshIhsgTicker();
-  setInterval(() => { refreshWatchPrices(); refreshIhsgTicker(); loadAccount(); }, 60_000);
+  setInterval(() => { refreshWatchPrices(); refreshIhsgTicker(); loadAccount(); window.refreshPriceChart?.(); }, 60_000);
   setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
 }
 

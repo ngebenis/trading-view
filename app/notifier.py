@@ -5,13 +5,11 @@
                    sinyal BERUBAH menjadi BELI atau JUAL (tidak mengulang sinyal yang sama).
 """
 import html
-import json
 import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 
@@ -128,14 +126,14 @@ def mask(token: str) -> str:
 
 
 class SignalWatcher:
-    def __init__(self, provider, path: Path | None, env_token: str = "", env_chat_id: str = "",
+    def __init__(self, provider, db, env_token: str = "", env_chat_id: str = "",
                  http: httpx.Client | None = None, clock=time.time):
         self.provider = provider
-        self.path = path
+        self.db = db  # app.db.Database atau None
         self.env_token, self.env_chat_id = env_token, env_chat_id
         self.http = http
         self.clock = clock
-        self.history: deque[dict] = deque(maxlen=200)
+        self.history: deque[dict] = deque(db.recent_logs("notifications", 200) if db else (), maxlen=200)
         self.last_action: dict[str, str] = {}
         self.last_run: float | None = None
         self._lock = threading.Lock()
@@ -145,18 +143,16 @@ class SignalWatcher:
 
     # ---- konfigurasi & penyimpanan -----------------------------------
     def _load(self) -> WatchConfig:
-        if self.path is not None and self.path.exists():
-            raw = json.loads(self.path.read_text())
+        raw = dict(self.db.get_setting("notifications") or {}) if self.db is not None else {}
+        if raw:
             self.last_action = raw.pop("_last_action", {})
             known = {f.name for f in fields(WatchConfig)}
             return WatchConfig(**{k: v for k, v in raw.items() if k in known})
         return WatchConfig()
 
     def _save(self) -> None:
-        if self.path is None:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({**asdict(self.config), "_last_action": self.last_action}, indent=2))
+        if self.db is not None:
+            self.db.set_setting("notifications", {**asdict(self.config), "_last_action": self.last_action})
 
     @property
     def token(self) -> str:  # .env lebih diutamakan daripada isian UI
@@ -217,6 +213,8 @@ class SignalWatcher:
     # ---- inti --------------------------------------------------------
     def _record(self, kind: str, symbol: str, message: str, sent: bool = False) -> dict:
         entry = {"time": self.clock(), "kind": kind, "symbol": symbol, "message": message, "sent": sent}
+        if self.db is not None:
+            entry["id"] = self.db.append_log("notifications", entry)
         self.history.appendleft(entry)
         return entry
 

@@ -201,6 +201,12 @@ class UsOrder:
         return d
 
     @classmethod
+    def from_dict(cls, d: dict) -> "UsOrder":
+        d = dict(d)
+        d["side"], d["order_type"], d["status"] = Side(d["side"]), OrderType(d["order_type"]), OrderStatus(d["status"])
+        return cls(**d)
+
+    @classmethod
     def from_alpaca(cls, r: dict, broker: str) -> "UsOrder":
         cid = r.get("client_order_id") or ""
         return cls(r["symbol"], Side(r["side"].upper()), OrderType(r.get("type", "market").upper()),

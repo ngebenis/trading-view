@@ -9,7 +9,7 @@
 
   const st = {
     symbol: pref("uSymbol", "AAPL"), watch: Array.isArray(watchPref) ? watchPref : DEFAULT_WATCH,
-    broker: pref("uBroker", "paper"), interval: pref("uInterval", "5m"), side: "BUY", unit: "usd",
+    broker: pref("uBroker", ""), interval: pref("uInterval", "5m"), side: "BUY", unit: "usd",
     quote: null, config: null, started: false, tab: "portfolio",
   };
   const timers = [];
@@ -190,9 +190,12 @@
     const sel = $("#uBroker");
     sel.innerHTML = Object.entries(st.config.brokers).map(([k, b]) =>
       `<option value="${k}">${escapeHtml(b.display_name)}${b.available ? "" : " — belum diatur"}</option>`).join("");
-    if (!st.config.brokers[st.broker]) st.broker = "paper";
+    if (!st.config.brokers[st.broker]) st.broker = st.config.default_broker;
     sel.value = st.broker;
-    $("#uFeed").textContent = st.config.data_feed;
+    $("#uSourceNote").textContent = st.config.data_source === "finnhub"
+      ? "Harga dari Finnhub (real-time untuk saham AS; paket gratis dibatasi 60 permintaan/menit). Candle memakai Finnhub bila paket Anda mendukung, selain itu Yahoo Finance."
+      : `Harga dari Alpaca Markets (feed ${st.config.data_feed}). Feed IEX gratis dan real-time, tetapi hanya memuat transaksi bursa IEX; feed SIP (berbayar) mencakup seluruh bursa AS.`;
+    if (!st.config.data_configured) $("#uSourceNote").textContent += " ⚠ API key data belum diatur — lihat .env.";
     onBrokerChange();
   }
   function renderMarketState() {
@@ -210,6 +213,7 @@
     else if (b?.is_live) note = st.config.live_trading_enabled
       ? `⚠ Akun Alpaca LIVE — uang sungguhan, maks. $${st.config.max_live_order_usd} per order, perlu konfirmasi.`
       : "Akun live terkunci: set ENABLE_LIVE_TRADING=true di .env untuk mengaktifkan.";
+    else if (st.broker === "sim") note = "Simulasi lokal: saldo & order hanya di aplikasi ini (tanpa broker). Order market terisi di harga terakhir.";
     else note = "Alpaca Paper Trading: saldo & order simulasi di server Alpaca.";
     $("#uBrokerNote").textContent = note;
     $("#uBrokerNote").classList.toggle("hidden", !note);
@@ -235,7 +239,7 @@
   function updateEstimate() {
     $("#uLimitWrap").classList.toggle("hidden", $("#uOrderType").value !== "LIMIT");
     const n = orderNumbers();
-    $("#uEstimate").innerHTML = n ? `± ${qty(n.quantity)} saham · nilai ${usd(n.value)}<br>Alpaca tidak memungut komisi untuk saham AS.` : "";
+    $("#uEstimate").innerHTML = n ? `± ${qty(n.quantity)} saham · nilai ${usd(n.value)}<br>Tanpa komisi.` : "";
   }
   async function submitOrder(ev) {
     ev.preventDefault();
@@ -326,6 +330,11 @@
     $("#uAmountUnit").onchange = () => { st.unit = $("#uAmountUnit").value; updateEstimate(); };
     $("#uOrderForm").onsubmit = submitOrder;
     document.querySelectorAll(".utab[data-utab]").forEach((t) => t.onclick = () => setTab(t.dataset.utab));
+    $("#uResetSim").onclick = async () => {
+      if (!confirm("Reset akun simulasi saham AS ke saldo awal?")) return;
+      await api("/api/us/paper/reset", { method: "POST" });
+      loadAccount();
+    };
     $("#uOpenNotif").onclick = () => {  // Telegram dipakai bersama; pengaturannya ada di tab Notifikasi Saham IDX
       window.setMarket("idx");
       document.querySelector('.tab[data-tab="notif"]')?.click();
@@ -346,8 +355,8 @@
     const active = () => document.body.dataset.market === "us" && !document.hidden;
     const every = (ms, fn) => timers.push(setInterval(() => { if (active()) fn(); }, ms));
     stop();
-    every(3_000, refreshQuote);
-    every(10_000, refreshWatch);
+    every(5_000, refreshQuote);   // hemat kuota Finnhub gratis (60 permintaan/menit)
+    every(15_000, refreshWatch);
     every(15_000, loadAccount);
     every(60_000, loadChart);
     every(60_000, async () => { try { st.config = await api("/api/us/config"); renderMarketState(); } catch { /* abaikan */ } });

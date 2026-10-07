@@ -671,7 +671,7 @@
       <h2>Saham AS</h2>
       <ul id="uWatch" class="watch"></ul>
       <form id="uAddWatch"><input id="uAddWatchInput" placeholder="+ tambah, mis. NVDA" autocomplete="off"></form>
-      <p class="disclaimer">Harga dari Alpaca Markets (feed <b id="uFeed">iex</b>). Feed IEX gratis dan real-time, tetapi hanya memuat transaksi bursa IEX; feed SIP (berbayar) mencakup seluruh bursa AS.</p>
+      <p class="disclaimer" id="uSourceNote"></p>
     </aside>
 
     <section class="center">
@@ -746,6 +746,7 @@
     <div class="tabs">
       <button class="utab active" data-utab="portfolio">Portofolio</button>
       <button class="utab" data-utab="orders">Riwayat Order</button>
+      <button id="uResetSim" class="link">Reset simulasi saham AS</button>
       <button id="uOpenNotif" class="utab" type="button" title="Pengaturan Telegram ada di tab Notifikasi">Notifikasi Telegram</button>
     </div>
     <div id="uPortfolioPane">

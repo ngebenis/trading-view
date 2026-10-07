@@ -353,16 +353,31 @@
         <label class="check"><input name="notify_trades" type="checkbox"> Kirim juga transaksi bot auto-trading (saham &amp; crypto)</label>
         <label class="check"><input name="notify_orders" type="checkbox"> Kirim order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan)</label>
         <fieldset class="wide report-set">
-          <legend>Laporan harian portofolio</legend>
+          <legend>Laporan portofolio (harian &amp; mingguan)</legend>
           <label class="check"><input name="report_enabled" type="checkbox"> Kirim laporan harian</label>
           <label>Jam (WIB)<input name="report_time" type="time" step="60"></label>
           <label class="check"><input name="report_weekdays_only" type="checkbox"> Hanya Senin–Jumat</label>
           <label class="check"><input name="report_crypto" type="checkbox"> Sertakan akun crypto</label>
           <span class="report-actions">
-            <button id="notifReportPreview" type="button">Lihat contoh</button>
-            <button id="notifReportSend" type="button">Kirim laporan sekarang</button>
+            <button id="notifReportPreview" type="button" data-period="daily">Lihat contoh</button>
+            <button id="notifReportSend" type="button" data-period="daily">Kirim sekarang</button>
+          </span>
+          <span class="report-break"></span>
+          <label class="check"><input name="weekly_enabled" type="checkbox"> Kirim laporan mingguan</label>
+          <label>Hari
+            <select name="weekly_day">
+              <option value="0">Senin</option><option value="1">Selasa</option><option value="2">Rabu</option>
+              <option value="3">Kamis</option><option value="4">Jumat</option><option value="5">Sabtu</option>
+              <option value="6">Minggu</option>
+            </select>
+          </label>
+          <label>Jam (WIB)<input name="weekly_time" type="time" step="60"></label>
+          <span class="report-actions">
+            <button id="notifWeeklyPreview" type="button" data-period="weekly">Lihat contoh</button>
+            <button id="notifWeeklySend" type="button" data-period="weekly">Kirim sekarang</button>
           </span>
           <div id="reportPreview" class="report-preview hidden"></div>
+          <small class="report-note">Ekuitas dicatat otomatis setiap hari pukul 16.00 WIB, sebagai pembanding laporan harian &amp; mingguan.</small>
         </fieldset>
         <div class="wide auto-save">
           <button class="primary">Simpan pengaturan</button>

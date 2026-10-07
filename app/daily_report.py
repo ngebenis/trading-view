@@ -1,14 +1,17 @@
-"""Laporan harian portofolio ke Telegram: akun simulasi saham IDX (dan crypto) sekali sehari.
+"""Laporan portofolio ke Telegram: harian dan mingguan (akun simulasi saham IDX, plus crypto).
 
-Dikirim otomatis pada jam `report_time` (WIB, bawaan 16:15 — setelah bursa tutup), memakai bot &
-pengaturan di tab Notifikasi. Perubahan ekuitas "hari ini" dihitung dari snapshot ekuitas yang
-disimpan setiap kali laporan dibuat (setting `report_snapshots`), jadi laporan pertama belum punya
-pembanding.
+- Harian  : jam `report_time` (WIB, bawaan 16:15 — setelah bursa tutup), opsional hanya Senin–Jumat.
+- Mingguan: hari `weekly_day` (0 = Senin … 6 = Minggu, bawaan Jumat) jam `weekly_time` (bawaan 16:30);
+            merangkum 7 hari terakhir: perubahan ekuitas, transaksi, perubahan harga tiap posisi,
+            saham terbaik/terburuk, dan IHSG.
+
+Perubahan ekuitas dihitung dari snapshot ekuitas harian (setting `report_snapshots`) yang dicatat
+otomatis sekali sehari setelah bursa tutup (dan setiap kali laporan dikirim).
 """
 import html
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from .autotrader import WIB, rupiah
 from .brokers import OrderStatus
@@ -18,11 +21,16 @@ from .notifier import _pct, index_value
 
 MAX_POSITIONS = 15
 KEEP_SNAPSHOTS = 60
+SNAPSHOT_TIME = "16:00"  # snapshot otomatis harian (WIB), setelah penutupan bursa
 DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 
 
 def signed_rp(x: float) -> str:
     return f"{'+' if x >= 0 else '-'}Rp{rupiah(abs(x))}"
+
+
+def ddmm(day: str) -> str:
+    return f"{day[8:10]}/{day[5:7]}"
 
 
 class DailyReporter:
@@ -38,24 +46,68 @@ class DailyReporter:
         self._thread: threading.Thread | None = None
         state = db.get_setting("daily_report", {}) if db is not None else {}
         self.last_sent: str | None = state.get("last_sent")
+        self.last_weekly_sent: str | None = state.get("last_weekly_sent")
+
+    def _now(self) -> datetime:
+        return datetime.fromtimestamp(self.clock(), WIB)
+
+    def _save_state(self) -> None:
+        if self.db is not None:
+            self.db.set_setting("daily_report", {"last_sent": self.last_sent, "last_weekly_sent": self.last_weekly_sent})
 
     # ---- snapshot ekuitas ----------------------------------------------
     def _snapshots(self) -> dict:
         return (self.db.get_setting("report_snapshots", {}) if self.db is not None else {}) or {}
 
-    def _change_since_yesterday(self, account: str, equity: float, today: str, save: bool) -> float | None:
+    def _save_snapshot(self, account: str, today: str, equity: float) -> None:
+        if self.db is None:
+            return
         snaps = self._snapshots()
         series = snaps.setdefault(account, {})
-        before = [d for d in series if d < today]
-        prev = series[max(before)] if before else None
-        if save and self.db is not None:
-            series[today] = equity
-            snaps[account] = {d: series[d] for d in sorted(series)[-KEEP_SNAPSHOTS:]}
-            self.db.set_setting("report_snapshots", snaps)
-        return None if prev is None else equity - prev
+        series[today] = equity
+        snaps[account] = {d: series[d] for d in sorted(series)[-KEEP_SNAPSHOTS:]}
+        self.db.set_setting("report_snapshots", snaps)
+
+    def _reference(self, account: str, today: str, period: str) -> tuple[str, float] | None:
+        """Snapshot pembanding: harian = hari sebelumnya; mingguan = ±7 hari lalu (atau yang tertua bila belum ada)."""
+        series = self._snapshots().get(account, {})
+        before = sorted(d for d in series if d < today)
+        if not before:
+            return None
+        if period == "daily":
+            ref = before[-1]
+        else:
+            cutoff = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
+            older = [d for d in before if d <= cutoff]
+            ref = older[-1] if older else before[0]
+        return ref, series[ref]
+
+    def _equity_line(self, label: str, equity: float, ref, money, unit_suffix="") -> str:
+        line = f"Ekuitas: <b>{money(equity)}{unit_suffix}</b>"
+        if ref is not None and ref[1]:
+            change = equity - ref[1]
+            sign = "+" if change >= 0 else "-"
+            line += f" ({sign}{money(abs(change))}{unit_suffix} / {_pct(change / ref[1] * 100)} sejak {ddmm(ref[0])})"
+        return line
+
+    # ---- harga seminggu lalu --------------------------------------------
+    @staticmethod
+    def _close_before(candles, cutoff: date) -> float | None:
+        closes = [c.close for c in candles if datetime.fromtimestamp(c.time, WIB).date() <= cutoff]
+        return closes[-1] if closes else None
+
+    def _week_change(self, provider, sym: str, price: float, cutoff: date, crypto: bool = False) -> float | None:
+        try:
+            candles = provider.candles(sym, None, "1d", 15) if crypto else provider.candles(sym, "1mo", "1d")
+        except MarketDataError:
+            return None
+        prev = self._close_before(candles, cutoff)
+        return (price / prev - 1) * 100 if prev else None
 
     # ---- isi laporan ---------------------------------------------------
-    def _stock_section(self, today: str, save: bool) -> list[str]:
+    def _stock_section(self, now: datetime, period: str, save: bool) -> list[str]:
+        today = now.strftime("%Y-%m-%d")
+        week_ago = now.date() - timedelta(days=7)
         quotes = {}
         for sym in set(self.paper.positions) | {"IHSG"}:
             try:
@@ -63,40 +115,59 @@ class DailyReporter:
             except MarketDataError:
                 pass
         acct = self.paper.account({s: q.price for s, q in quotes.items()})
-        change = self._change_since_yesterday("idx", acct["equity"], today, save)
+        ref = self._reference("idx", today, period)
+        if save:
+            self._save_snapshot("idx", today, acct["equity"])
         lines = ["<b>📈 Saham IDX — akun simulasi</b>",
-                 f"Ekuitas: <b>Rp{rupiah(acct['equity'])}</b>" +
-                 (f" ({signed_rp(change)} / {_pct(change / (acct['equity'] - change) * 100)} sejak laporan kemarin)"
-                  if change is not None and acct["equity"] != change else ""),
+                 self._equity_line("idx", acct["equity"], ref, lambda x: f"Rp{rupiah(x)}"),
                  f"Kas: Rp{rupiah(acct['cash'])} · Nilai saham: Rp{rupiah(acct['market_value'])}",
                  f"Total P/L: {signed_rp(acct['total_pl'])} ({_pct(acct['total_pl_pct'])})"]
         positions = sorted(acct["positions"], key=lambda p: -p["market_value"])
+        moves = {}
         if positions:
-            day_pl = sum(p["shares"] * quotes[p["symbol"]].change for p in positions if p["symbol"] in quotes)
-            lines.append(f"Posisi ({len(positions)}) · pergerakan hari ini {signed_rp(day_pl)}:")
+            if period == "daily":
+                day_pl = sum(p["shares"] * quotes[p["symbol"]].change for p in positions if p["symbol"] in quotes)
+                lines.append(f"Posisi ({len(positions)}) · pergerakan hari ini {signed_rp(day_pl)}:")
+            else:
+                lines.append(f"Posisi ({len(positions)}) · perubahan harga 7 hari:")
             for p in positions[:MAX_POSITIONS]:
                 q = quotes.get(p["symbol"])
-                today_chg = f" ({_pct(q.change_pct)})" if q else ""
-                lines.append(f"• {html.escape(p['symbol'])} {p['lots']} lot · {rupiah(p['last_price'])}{today_chg}"
+                if period == "daily":
+                    chg = q.change_pct if q else None
+                else:
+                    chg = self._week_change(self.provider, p["symbol"], p["last_price"], week_ago)
+                    if chg is not None:
+                        moves[p["symbol"]] = chg
+                lines.append(f"• {html.escape(p['symbol'])} {p['lots']} lot · {rupiah(p['last_price'])}"
+                             f"{f' ({_pct(chg)})' if chg is not None else ''}"
                              f" · P/L {signed_rp(p['unrealized_pl'])} ({_pct(p['unrealized_pl_pct'])})")
             if len(positions) > MAX_POSITIONS:
                 lines.append(f"… dan {len(positions) - MAX_POSITIONS} posisi lainnya")
+            if len(moves) >= 2:
+                best, worst = max(moves, key=moves.get), min(moves, key=moves.get)
+                lines.append(f"Terbaik: {best} {_pct(moves[best])} · Terburuk: {worst} {_pct(moves[worst])}")
         else:
             lines.append("Posisi: tidak ada")
+        start = today if period == "daily" else (now.date() - timedelta(days=6)).isoformat()
         filled = [o for o in self.paper.orders() if o.status == OrderStatus.FILLED
-                  and datetime.fromtimestamp(o.filled_at or o.created_at, WIB).strftime("%Y-%m-%d") == today]
+                  and start <= datetime.fromtimestamp(o.filled_at or o.created_at, WIB).strftime("%Y-%m-%d") <= today]
+        what = "hari ini" if period == "daily" else "7 hari"
         if filled:
             buys = sum(1 for o in filled if o.side.value == "BUY")
             value = sum(o.lots * LOT_SIZE * o.fill_price for o in filled)
-            lines.append(f"Transaksi hari ini: {buys} beli, {len(filled) - buys} jual · nilai Rp{rupiah(value)}")
+            lines.append(f"Transaksi {what}: {buys} beli, {len(filled) - buys} jual · nilai Rp{rupiah(value)}")
         else:
-            lines.append("Transaksi hari ini: tidak ada")
+            lines.append(f"Transaksi {what}: tidak ada")
         if "IHSG" in quotes:
             q = quotes["IHSG"]
-            lines.append(f"IHSG: {index_value(q.price)} ({_pct(q.change_pct)})")
+            if period == "daily":
+                lines.append(f"IHSG: {index_value(q.price)} ({_pct(q.change_pct)})")
+            else:
+                wk = self._week_change(self.provider, "IHSG", q.price, week_ago)
+                lines.append(f"IHSG: {index_value(q.price)}" + (f" ({_pct(wk)} dalam 7 hari)" if wk is not None else ""))
         return lines
 
-    def _crypto_section(self, today: str, save: bool) -> list[str]:
+    def _crypto_section(self, now: datetime, period: str, save: bool) -> list[str]:
         from .crypto import price_str, qty_str, usdt
         provider, brokers = self.crypto.get("provider"), self.crypto.get("brokers") or {}
         paper = brokers.get("paper")
@@ -109,68 +180,112 @@ class DailyReporter:
         acct = paper.account(prices)
         if not acct["positions"] and not paper.orders():
             return []  # akun crypto belum pernah dipakai: tidak perlu dilaporkan
-        change = self._change_since_yesterday("crypto", acct["equity"], today, save)
+        today = now.strftime("%Y-%m-%d")
+        ref = self._reference("crypto", today, period)
+        if save:
+            self._save_snapshot("crypto", today, acct["equity"])
         lines = ["<b>🪙 Crypto — akun simulasi (USDT)</b>",
-                 f"Ekuitas: <b>{usdt(acct['equity'])} USDT</b>" +
-                 (f" ({'+' if change >= 0 else '-'}{usdt(abs(change))} / {_pct(change / (acct['equity'] - change) * 100)}"
-                  " sejak laporan kemarin)" if change is not None and acct["equity"] != change else ""),
+                 self._equity_line("crypto", acct["equity"], ref, usdt, " USDT"),
                  f"Saldo USDT: {usdt(acct['cash'])} · Total P/L: {'+' if acct['total_pl'] >= 0 else '-'}"
                  f"{usdt(abs(acct['total_pl']))} ({_pct(acct['total_pl_pct'])})"]
         positions = sorted(acct["positions"], key=lambda p: -p["market_value"])
+        week_ago = now.date() - timedelta(days=7)
         for p in positions[:MAX_POSITIONS]:
-            try:
-                q = provider.quote(p["symbol"])
-                chg = f" ({_pct(q.change_pct)} 24j)"
-            except MarketDataError:
-                chg = ""
+            if period == "daily":
+                try:
+                    chg, label = provider.quote(p["symbol"]).change_pct, "24j"
+                except MarketDataError:
+                    chg, label = None, ""
+            else:
+                chg, label = self._week_change(provider, p["symbol"], p["last_price"], week_ago, crypto=True), "7h"
             lines.append(f"• {html.escape(p['asset'])} {qty_str(p['quantity']).replace('.', ',')} · "
-                         f"{price_str(p['last_price'])}{chg} · P/L {'+' if p['unrealized_pl'] >= 0 else '-'}"
-                         f"{usdt(abs(p['unrealized_pl']))} ({_pct(p['unrealized_pl_pct'])})")
+                         f"{price_str(p['last_price'])}{f' ({_pct(chg)} {label})' if chg is not None else ''} · P/L "
+                         f"{'+' if p['unrealized_pl'] >= 0 else '-'}{usdt(abs(p['unrealized_pl']))} ({_pct(p['unrealized_pl_pct'])})")
         if len(positions) > MAX_POSITIONS:
             lines.append(f"… dan {len(positions) - MAX_POSITIONS} aset lainnya")
         return lines
 
-    def build(self, save: bool = False) -> str:
-        now = datetime.fromtimestamp(self.clock(), WIB)
-        today = now.strftime("%Y-%m-%d")
-        sections = [self._stock_section(today, save)]
+    def build(self, save: bool = False, period: str = "daily") -> str:
+        now = self._now()
+        sections = [self._stock_section(now, period, save)]
         if self.watcher.config.report_crypto:
-            sections.append(self._crypto_section(today, save))
-        head = [f"📊 <b>Laporan portofolio — {DAYS[now.weekday()]}, {now:%d/%m/%Y} {now:%H:%M} WIB</b>"]
+            sections.append(self._crypto_section(now, period, save))
+        if period == "daily":
+            head = f"📊 <b>Laporan portofolio — {DAYS[now.weekday()]}, {now:%d/%m/%Y} {now:%H:%M} WIB</b>"
+        else:
+            start = now - timedelta(days=6)
+            head = (f"📅 <b>Laporan mingguan portofolio — {start:%d/%m} s/d {now:%d/%m/%Y}</b>\n"
+                    f"<i>Dibuat {DAYS[now.weekday()]} {now:%H:%M} WIB</i>")
         body = ["\n".join(s) for s in sections if s]
-        return "\n\n".join(head + body + ["<i>Akun simulasi. Bukan rekomendasi investasi.</i>"])
+        return "\n\n".join([head] + body + ["<i>Akun simulasi. Bukan rekomendasi investasi.</i>"])
+
+    def build_weekly(self, save: bool = False) -> str:
+        return self.build(save, "weekly")
 
     # ---- pengiriman ----------------------------------------------------
-    def send_now(self) -> dict:
+    def send_now(self, period: str = "daily") -> dict:
         """Kirim laporan sekarang (dari tombol atau jadwal) dan simpan snapshot ekuitas hari ini."""
         with self._lock:
-            ok, err = self.watcher._send(self.build(save=True))
+            ok, err = self.watcher._send(self.build(save=True, period=period))
+            name = "harian" if period == "daily" else "mingguan"
             if not ok:
-                return self.watcher._record("ERROR", "-", f"Laporan harian gagal dikirim: {err}")
-            self.last_sent = datetime.fromtimestamp(self.clock(), WIB).strftime("%Y-%m-%d")
-            if self.db is not None:
-                self.db.set_setting("daily_report", {"last_sent": self.last_sent})
-            return self.watcher._record("REPORT", "-", "Laporan harian portofolio terkirim", sent=True)
+                return self.watcher._record("ERROR", "-", f"Laporan {name} gagal dikirim: {err}")
+            today = self._now().strftime("%Y-%m-%d")
+            if period == "daily":
+                self.last_sent = today
+            else:
+                self.last_weekly_sent = today
+            self._save_state()
+            return self.watcher._record("REPORT", "-", f"Laporan {name} portofolio terkirim", sent=True)
+
+    def _ready(self) -> bool:
+        return bool(self.watcher.token and self.watcher.chat_id)
 
     def due(self) -> bool:
-        cfg = self.watcher.config
-        if not cfg.report_enabled or not (self.watcher.token and self.watcher.chat_id):
+        cfg, now = self.watcher.config, self._now()
+        if not cfg.report_enabled or not self._ready():
             return False
-        now = datetime.fromtimestamp(self.clock(), WIB)
         if cfg.report_weekdays_only and now.weekday() >= 5:
             return False
         if self.last_sent == now.strftime("%Y-%m-%d"):
             return False
         return now.strftime("%H:%M") >= cfg.report_time  # terlambat (mis. server baru nyala) tetap dikirim hari itu
 
-    def run_due(self) -> dict | None:
-        return self.send_now() if self.due() else None
+    def weekly_due(self) -> bool:
+        cfg, now = self.watcher.config, self._now()
+        if not cfg.weekly_enabled or not self._ready() or now.weekday() != cfg.weekly_day:
+            return False
+        if self.last_weekly_sent == now.strftime("%Y-%m-%d"):
+            return False
+        return now.strftime("%H:%M") >= cfg.weekly_time
+
+    def maybe_snapshot(self) -> bool:
+        """Catat ekuitas sekali sehari setelah bursa tutup, walau laporan harian tidak aktif."""
+        now = self._now()
+        today = now.strftime("%Y-%m-%d")
+        if now.strftime("%H:%M") < SNAPSHOT_TIME or today in self._snapshots().get("idx", {}):
+            return False
+        self.build(save=True)  # menghitung ekuitas akun & menyimpan snapshot (tanpa mengirim)
+        return True
+
+    def run_due(self) -> list[dict]:
+        out = []
+        if self.due():
+            out.append(self.send_now("daily"))
+        if self.weekly_due():
+            out.append(self.send_now("weekly"))
+        self.maybe_snapshot()
+        return out
 
     def next_run(self) -> str | None:
         cfg = self.watcher.config
         if not cfg.report_enabled:
             return None
         return f"{cfg.report_time} WIB" + (" (Senin–Jumat)" if cfg.report_weekdays_only else " (setiap hari)")
+
+    def next_weekly(self) -> str | None:
+        cfg = self.watcher.config
+        return f"{DAYS[cfg.weekly_day]} {cfg.weekly_time} WIB" if cfg.weekly_enabled else None
 
     # ---- loop latar belakang -------------------------------------------
     def start(self) -> None:
@@ -187,4 +302,4 @@ class DailyReporter:
             try:
                 self.run_due()
             except Exception as exc:  # loop tidak boleh mati
-                self.watcher._record("ERROR", "-", f"Laporan harian gagal dibuat: {exc}")
+                self.watcher._record("ERROR", "-", f"Laporan portofolio gagal dibuat: {exc}")

@@ -240,6 +240,9 @@ td.wrap { white-space: normal; text-align: left; }
 .report-set .check input { width: auto; }
 .report-set input[type=time] { width: auto; }
 .report-actions { display: flex; gap: 8px; margin-left: auto; }
+.report-break { flex-basis: 100%; height: 0; border-top: 1px dashed var(--border); }
+.report-set select { width: auto; }
+.report-note { flex-basis: 100%; }
 .report-preview { flex-basis: 100%; white-space: pre-wrap; font-size: 13px; line-height: 1.5; background: var(--bg);
   border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; max-height: 420px; overflow: auto; }
 #cPortfolio a { color: var(--accent); text-decoration: none; font-weight: 600; }

@@ -5,6 +5,8 @@
             merangkum 7 hari terakhir.
 - Bulanan : tanggal `monthly_day` (0 = hari terakhir bulan, atau 1–28) jam `monthly_time` (bawaan 16:45);
             merangkum bulan berjalan dibanding akhir bulan sebelumnya, plus ekuitas tertinggi/terendah.
+- Kuartalan: hari terakhir tiap kuartal (31 Mar, 30 Jun, 30 Sep, 31 Des) jam `quarterly_time` (bawaan 16:48);
+            merangkum kuartal berjalan dibanding akhir kuartal lalu, plus return per bulan & tertinggi/terendah.
 - Tahunan : 31 Desember jam `yearly_time` (bawaan 16:50); merangkum tahun berjalan dibanding akhir tahun
             lalu, plus return per bulan dan ekuitas tertinggi/terendah setahun.
 
@@ -31,9 +33,11 @@ DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober",
           "November", "Desember"]
 MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-PERIOD_NAME = {"daily": "harian", "weekly": "mingguan", "monthly": "bulanan", "yearly": "tahunan"}
+PERIOD_NAME = {"daily": "harian", "weekly": "mingguan", "monthly": "bulanan", "quarterly": "kuartalan",
+               "yearly": "tahunan"}
 LAST_SENT_ATTR = {"daily": "last_sent", "weekly": "last_weekly_sent", "monthly": "last_monthly_sent",
-                  "yearly": "last_yearly_sent"}
+                  "quarterly": "last_quarterly_sent", "yearly": "last_yearly_sent"}
+QUARTER_END_MONTHS = (3, 6, 9, 12)
 
 
 def signed_rp(x: float) -> str:
@@ -64,6 +68,9 @@ class Window:
         if period == "monthly":
             start = today.replace(day=1)
             return cls(period, start - timedelta(days=1), start, "bulan ini", "bulan ini")
+        if period == "quarterly":
+            start = today.replace(month=(today.month - 1) // 3 * 3 + 1, day=1)
+            return cls(period, start - timedelta(days=1), start, "kuartal ini", "kuartal ini")
         if period == "yearly":
             start = today.replace(month=1, day=1)
             return cls(period, start - timedelta(days=1), start, "tahun ini", "tahun ini")
@@ -85,6 +92,7 @@ class DailyReporter:
         self.last_sent: str | None = state.get("last_sent")
         self.last_weekly_sent: str | None = state.get("last_weekly_sent")
         self.last_monthly_sent: str | None = state.get("last_monthly_sent")
+        self.last_quarterly_sent: str | None = state.get("last_quarterly_sent")
         self.last_yearly_sent: str | None = state.get("last_yearly_sent")
 
     def _now(self) -> datetime:
@@ -140,13 +148,14 @@ class DailyReporter:
                 f"terendah {money(points[lo])}{unit_suffix} ({ddmm(lo)})")
 
     def _monthly_returns(self, account: str, today: str, window: Window, equity: float) -> str | None:
-        """Tahunan: return tiap bulan dari snapshot akhir bulan (pembanding bulan pertama = akhir tahun lalu)."""
+        """Kuartalan/tahunan: return tiap bulan dari snapshot akhir bulan (pembanding bulan pertama = akhir
+        periode sebelumnya)."""
         series = dict(self._snapshots().get(account, {}))
         series[today] = equity
         month_end: dict[str, float] = {}
         for d in sorted(series):
             month_end[d[:7]] = series[d]  # nilai terakhir tiap bulan
-        prev = month_end.get(window.cutoff.isoformat()[:7])  # akhir tahun lalu
+        prev = month_end.get(window.cutoff.isoformat()[:7])  # akhir periode sebelumnya
         parts = []
         for ym in sorted(m for m in month_end if m >= window.start.isoformat()[:7]):
             value = month_end[ym]
@@ -187,11 +196,11 @@ class DailyReporter:
         ref = self._reference("idx", today, window)
         money = lambda x: f"Rp{rupiah(x)}"  # noqa: E731
         lines = ["<b>📈 Saham IDX — akun simulasi</b>", self._equity_line(acct["equity"], ref, money)]
-        if window.period in ("monthly", "yearly"):
+        if window.period in ("monthly", "quarterly", "yearly"):
             rng = self._range_line("idx", today, window, acct["equity"], money)
             if rng:
                 lines.append(rng)
-        if window.period == "yearly":
+        if window.period in ("quarterly", "yearly"):
             months = self._monthly_returns("idx", today, window, acct["equity"])
             if months:
                 lines.append(months)
@@ -260,11 +269,11 @@ class DailyReporter:
         today = now.strftime("%Y-%m-%d")
         ref = self._reference("crypto", today, window)
         lines = ["<b>🪙 Crypto — akun simulasi (USDT)</b>", self._equity_line(acct["equity"], ref, usdt, " USDT")]
-        if window.period in ("monthly", "yearly"):
+        if window.period in ("monthly", "quarterly", "yearly"):
             rng = self._range_line("crypto", today, window, acct["equity"], usdt, " USDT")
             if rng:
                 lines.append(rng)
-        if window.period == "yearly":
+        if window.period in ("quarterly", "yearly"):
             months = self._monthly_returns("crypto", today, window, acct["equity"])
             if months:
                 lines.append(months)
@@ -273,7 +282,7 @@ class DailyReporter:
         lines.append(f"Saldo USDT: {usdt(acct['cash'])} · Total P/L: {'+' if acct['total_pl'] >= 0 else '-'}"
                      f"{usdt(abs(acct['total_pl']))} ({_pct(acct['total_pl_pct'])})")
         positions = sorted(acct["positions"], key=lambda p: -p["market_value"])
-        short = {"weekly": "7h", "monthly": "bln", "yearly": "thn"}
+        short = {"weekly": "7h", "monthly": "bln", "quarterly": "kw", "yearly": "thn"}
         for p in positions[:MAX_POSITIONS]:
             if window.cutoff is None:
                 try:
@@ -302,6 +311,12 @@ class DailyReporter:
         elif window.period == "weekly":
             head = (f"📅 <b>Laporan mingguan portofolio — {window.start:%d/%m} s/d {now:%d/%m/%Y}</b>\n"
                     f"<i>Dibuat {made}</i>")
+        elif window.period == "quarterly":
+            q = (now.month - 1) // 3 + 1
+            head = (f"🧾 <b>Laporan kuartalan portofolio — Q{q} {now.year}</b> "
+                    f"({MONTHS_SHORT[window.start.month - 1]}–{MONTHS_SHORT[window.start.month + 1]})\n"
+                    f"<i>{window.start:%d/%m} s/d {now:%d/%m/%Y} · dibanding akhir kuartal lalu ({window.cutoff:%d/%m/%Y}) · "
+                    f"dibuat {made}</i>")
         elif window.period == "yearly":
             head = (f"🎆 <b>Laporan tahunan portofolio — {now.year}</b>\n"
                     f"<i>{window.start:%d/%m} s/d {now:%d/%m/%Y} · dibanding akhir tahun lalu ({window.cutoff:%d/%m/%Y}) · "
@@ -359,6 +374,16 @@ class DailyReporter:
             return False
         return now.strftime("%H:%M") >= cfg.monthly_time
 
+    def quarterly_due(self) -> bool:
+        cfg, now = self.watcher.config, self._now()
+        if not cfg.quarterly_enabled or not self._ready():
+            return False
+        if now.month not in QUARTER_END_MONTHS or not is_last_day_of_month(now.date()):
+            return False
+        if self.last_quarterly_sent == now.strftime("%Y-%m-%d"):
+            return False
+        return now.strftime("%H:%M") >= cfg.quarterly_time
+
     def yearly_due(self) -> bool:
         cfg, now = self.watcher.config, self._now()
         if not cfg.yearly_enabled or not self._ready() or (now.month, now.day) != (12, 31):
@@ -384,6 +409,8 @@ class DailyReporter:
             out.append(self.send_now("weekly"))
         if self.monthly_due():
             out.append(self.send_now("monthly"))
+        if self.quarterly_due():
+            out.append(self.send_now("quarterly"))
         if self.yearly_due():
             out.append(self.send_now("yearly"))
         self.maybe_snapshot()
@@ -405,6 +432,11 @@ class DailyReporter:
             return None
         day = "hari terakhir tiap bulan" if cfg.monthly_day == 0 else f"tanggal {cfg.monthly_day} tiap bulan"
         return f"{day} {cfg.monthly_time} WIB"
+
+    def next_quarterly(self) -> str | None:
+        cfg = self.watcher.config
+        return (f"hari terakhir tiap kuartal (31 Mar, 30 Jun, 30 Sep, 31 Des) {cfg.quarterly_time} WIB"
+                if cfg.quarterly_enabled else None)
 
     def next_yearly(self) -> str | None:
         cfg = self.watcher.config

@@ -1,7 +1,7 @@
 // Tab Notifikasi Telegram. Memakai helper global dari app.js: $, api, cleanSymbol, escapeHtml, state.
 (() => {
   let initialized = false;
-  const SEND_BUTTONS = ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend", "#notifYearlySend"];
+  const SEND_BUTTONS = ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend", "#notifQuarterlySend", "#notifYearlySend"];
   let lastStatus = null;
 
   const msg = (text, ok = true) => {
@@ -32,6 +32,8 @@
     f.elements.monthly_enabled.checked = c.monthly_enabled;
     f.elements.monthly_day.value = String(c.monthly_day);
     f.elements.monthly_time.value = c.monthly_time;
+    f.elements.quarterly_enabled.checked = c.quarterly_enabled;
+    f.elements.quarterly_time.value = c.quarterly_time;
     f.elements.yearly_enabled.checked = c.yearly_enabled;
     f.elements.yearly_time.value = c.yearly_time;
     f.elements.bot_token.disabled = st.token_from_env;
@@ -60,6 +62,7 @@
         (st.report_schedule ? ` · laporan harian ${st.report_schedule}` : "") +
         (st.weekly_schedule ? ` · laporan mingguan ${st.weekly_schedule}` : "") +
         (st.monthly_schedule ? ` · laporan bulanan ${st.monthly_schedule}` : "") +
+        (st.quarterly_schedule ? ` · laporan kuartalan ${st.quarterly_schedule}` : "") +
         (st.yearly_schedule ? ` · laporan tahunan ${st.yearly_schedule}` : "");
     for (const id of SEND_BUTTONS) $(id).disabled = !st.configured;
 
@@ -100,6 +103,8 @@
       monthly_enabled: f.elements.monthly_enabled.checked,
       monthly_day: Number(f.elements.monthly_day.value),
       monthly_time: f.elements.monthly_time.value || "16:45",
+      quarterly_enabled: f.elements.quarterly_enabled.checked,
+      quarterly_time: f.elements.quarterly_time.value || "16:48",
       yearly_enabled: f.elements.yearly_enabled.checked,
       yearly_time: f.elements.yearly_time.value || "16:50",
     };
@@ -146,12 +151,13 @@
     $("#notifUseCryptoWatch").onclick = () => { $("#notifForm").elements.crypto_symbols.value = (window.cryptoWatchlist?.() || []).join(", "); };
     $("#notifTest").onclick = () => action("test", () => "Pesan uji terkirim — cek Telegram Anda");
     let shownPeriod = null;
-    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan", yearly: "tahunan" };
+    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan", quarterly: "kuartalan", yearly: "tahunan" };
     for (const id of SEND_BUTTONS) {
       const period = $(id).dataset.period;
       $(id).onclick = () => action(`report?period=${period}`, () => `Laporan ${PERIOD[period]} terkirim — cek Telegram Anda`);
     }
-    for (const id of ["#notifReportPreview", "#notifWeeklyPreview", "#notifMonthlyPreview", "#notifYearlyPreview"]) {
+    for (const id of ["#notifReportPreview", "#notifWeeklyPreview", "#notifMonthlyPreview", "#notifQuarterlyPreview",
+                      "#notifYearlyPreview"]) {
       $(id).onclick = async () => {
         const box = $("#reportPreview"), period = $(id).dataset.period;
         if (!box.classList.contains("hidden") && shownPeriod === period) { box.classList.add("hidden"); return; }

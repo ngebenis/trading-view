@@ -86,7 +86,28 @@ real-time sesungguhnya hanya tersedia lewat feed berlisensi (layanan data IDX / 
 API resmi sekuritas). Bila Anda punya akses seperti itu, cukup buat provider baru dengan metode
 `quote()` dan `candles()` seperti di `app/market_data.py` — mode live, grafik, bot & notifikasi langsung
 memakainya. Dengan `MARKET_DATA_PROVIDER=demo`, harga demo bergerak sepanjang jam bursa untuk mencoba mode live.
-Alternatif yang sudah tersedia: **price feed dari TradingView** (di bawah) bila Anda berlangganan data IDX real-time di TradingView.
+Tersedia juga dua penyedia data IDX berbayar — lihat **Sumber data saham IDX (Invezgo / GoAPI)** di bawah.
+Alternatif lain yang sudah tersedia: **price feed dari TradingView** (di bawah) bila Anda berlangganan data IDX real-time di TradingView.
+
+## 🛰️ Sumber data saham IDX (Invezgo / GoAPI)
+
+Untuk data yang jauh lebih segar daripada Yahoo (±10–15 menit), pilih penyedia berbayar di `.env`:
+
+| `MARKET_DATA_PROVIDER` | API key | Yang dipakai aplikasi |
+|---|---|---|
+| `invezgo` | `INVEZGO_API_KEY` ([invezgo.com](https://invezgo.com/id/data-api-saham-indonesia)) | harga & harga kemarin (`/analysis/intraday-data`), waktu transaksi terakhir (`/analysis/intraday`), IHSG/LQ45 (`/analysis/intraday-index`), candle harian (`/analysis/chart/stock|index`) dan intraday 1/5/15 mnt (`/analysis/chart/multi-time`) |
+| `goapi` | `GOAPI_API_KEY` ([goapi.io](https://goapi.io/api-data-saham-indonesia/)) | harga banyak saham dalam satu permintaan (`/stock/idx/prices`), candle harian (`/stock/idx/{kode}/historical`) |
+
+- Endpoint & format mengikuti SDK resmi masing-masing ([Invezgo](https://github.com/Invezgo/invezgo-python-sdk),
+  [GoAPI](https://github.com/goapi-io/php-sdk)); API key dikirim lewat header (`Authorization: Bearer` / `X-API-KEY`).
+- Yang tidak disediakan penyedia — mis. candle intraday & indeks di GoAPI — atau saat penyedia gangguan/kuota habis,
+  otomatis diambil dari `VENDOR_FALLBACK` (bawaan `yahoo`). Status live menuliskan "(cadangan: yahoo)" bila itu terjadi.
+- GoAPI: semua saham yang sedang dipantau (2 menit terakhir) diambil dalam **satu** permintaan, agar hemat kuota.
+- Mode live mengambil harga saham yang dibuka tiap `LIVE_FOCUS_SECONDS` (10 dtk) dan watchlist tiap
+  `LIVE_WATCH_SECONDS` (30 dtk) — sesuaikan dengan batas permintaan paket Anda.
+- **Seberapa real-time** datanya, dan apakah boleh dipakai di aplikasi seperti ini, ditentukan paket & syarat
+  penyedia — pastikan dulu dengan mereka. Integrasi ini diuji dengan server tiruan berformat SDK resmi; belum
+  diuji dengan akun asli.
 
 ## 🚦 ARA / ARB (Auto Rejection)
 
@@ -426,6 +447,7 @@ app/
   backtest.py        Backtest bot dengan data historis
   notifier.py        Notifikasi Telegram & pemantau sinyal
   webhooks.py        Penerima webhook alert TradingView
+  idx_vendors.py     Penyedia data IDX berbayar (Invezgo, GoAPI) + cadangan otomatis
   price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
   binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto

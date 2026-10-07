@@ -26,7 +26,8 @@ from .idx_rules import (ARA_PCTS, ARB_PCTS, LOT_SIZE, is_index, limit_status, no
                         tradingview_symbol, tradingview_url)
 from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
 from .crypto_api import register_crypto
-from .market_data import MarketDataError, get_provider
+from .idx_vendors import build_provider
+from .market_data import MarketDataError
 from .price_feed import FeedError, FeedProvider, PriceFeed, pine_script
 from .notifier import NotifierError, SignalWatcher
 from .webhooks import TradingViewWebhook, WebhookError
@@ -54,13 +55,13 @@ class OrderRequest(BaseModel):
 
 
 def create_app(settings: Settings = default_settings, provider=None, telegram_http=None,
-               binance_http=None) -> FastAPI:
+               binance_http=None, vendor_http=None) -> FastAPI:
     db = Database(settings.database_path or settings.data_dir / "app.db")
     db.migrate_json(settings.data_dir, settings.paper_starting_cash)  # sekali, dari versi berbasis JSON
     db.prune_logs(keep_days=180)
     # Harga dari price feed webhook TradingView (bila aktif & segar), selebihnya dari provider biasa.
     feed = PriceFeed(db)
-    provider = FeedProvider(provider or get_provider(settings.market_data_provider), feed)
+    provider = FeedProvider(provider or build_provider(settings, vendor_http), feed)
     paper = PaperBroker(db, settings.paper_starting_cash,
                         settings.buy_fee_pct, settings.sell_fee_pct)
     autotrader = AutoTrader(paper, provider, db, settings.max_position_pct)

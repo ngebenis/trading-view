@@ -401,7 +401,7 @@
 
   function setTab(tab) {
     st.tab = tab;
-    document.querySelectorAll(".ctab").forEach((t) => t.classList.toggle("active", t.dataset.ctab === tab));
+    document.querySelectorAll(".ctab[data-ctab]").forEach((t) => t.classList.toggle("active", t.dataset.ctab === tab));
     $("#cPortfolioPane").classList.toggle("hidden", tab !== "portfolio");
     $("#cOrdersPane").classList.toggle("hidden", tab !== "orders");
     $("#cBotPane").classList.toggle("hidden", tab !== "bot");
@@ -427,7 +427,13 @@
     ["#cOrderType", "#cAmount", "#cLimitPrice"].forEach((s) => $(s).addEventListener("input", updateEstimate));
     $("#cAmountUnit").onchange = () => { st.unit = $("#cAmountUnit").value; updateEstimate(); };
     $("#cOrderForm").onsubmit = submitOrder;
-    document.querySelectorAll(".ctab").forEach((t) => t.onclick = () => setTab(t.dataset.ctab));
+    document.querySelectorAll(".ctab[data-ctab]").forEach((t) => t.onclick = () => setTab(t.dataset.ctab));
+    // Pengaturan Telegram dipakai bersama saham & crypto; ada di tab Notifikasi tampilan Saham IDX.
+    $("#cOpenNotif").onclick = () => {
+      setMarket("idx");
+      document.querySelector('.tab[data-tab="notif"]')?.click();
+      $("#notifPane").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
     $("#cResetPaper").onclick = async () => {
       if (!confirm("Reset akun simulasi crypto ke saldo awal?")) return;
       await api("/api/crypto/paper/reset", { method: "POST" });
@@ -465,6 +471,7 @@
   }
   function stop() { while (timers.length) clearInterval(timers.pop()); }
 
+  window.cryptoWatchlist = () => st.watch;
   document.querySelectorAll("#marketSeg button").forEach((b) => b.onclick = () => setMarket(b.dataset.market));
   setMarket(pref("market", "idx") === "crypto" ? "crypto" : "idx");
 })();

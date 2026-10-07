@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .autotrader import WIB, is_idx_market_open, rupiah
+from .binance import KLINE_INTERVALS, normalize_pair, split_pair
 from .idx_rules import is_index, limit_status, normalize_symbol, price_limits, stockbit_url, tradingview_url
 from .market_data import MarketDataError
 from .strategy import analyze
@@ -107,6 +108,42 @@ def format_trade(entry: dict) -> str:
             f"{html.escape(entry['symbol'])}: {html.escape(entry['message'])}")
 
 
+CANDLE_LABEL = {"1m": "1 menit", "5m": "5 menit", "15m": "15 menit", "1h": "1 jam", "4h": "4 jam", "1d": "harian"}
+
+
+def crypto_links(symbol: str) -> str:
+    base, quote = split_pair(symbol) or (symbol, "")
+    return (f'<a href="https://www.binance.com/en/trade/{base}_{quote}?type=spot">Binance</a> · '
+            f'<a href="https://www.tradingview.com/symbols/{symbol}/?exchange=BINANCE">TradingView</a>')
+
+
+def _pct(x: float) -> str:
+    return f"{x:+.2f}%".replace(".", ",")
+
+
+def format_crypto_signal(symbol: str, action: str, analysis: dict, quote, interval: str) -> str:
+    from .crypto import price_str  # impor lokal: crypto.py ikut memuat modul auto-trader
+    icon, label = {"BUY": ("🟢", "SINYAL BELI"), "SELL": ("🔴", "SINYAL JUAL")}[action]
+    lines = [f"{icon} <b>{label} — {html.escape(symbol)}</b> (crypto · candle {CANDLE_LABEL.get(interval, interval)})"]
+    if quote is not None:
+        lines.append(f"Harga: <b>{price_str(quote.price)} {html.escape(quote.currency)}</b> ({_pct(quote.change_pct)} 24 jam)")
+    lines.append(f"Skor: <b>{analysis['score']:+d}</b>")
+    lines += [f"• {html.escape(r)}" for r in analysis["reasons"]]
+    lines += ["", crypto_links(symbol), "<i>Sinyal otomatis, bukan rekomendasi investasi.</i>"]
+    return "\n".join(lines)
+
+
+def format_crypto_move(symbol: str, quote, threshold: float) -> str:
+    from .crypto import price_str
+    up = quote.change_pct > 0
+    return "\n".join([
+        f"{'🚀' if up else '📉'} <b>{html.escape(symbol)} {'naik' if up else 'turun'} {_pct(quote.change_pct)} dalam 24 jam</b>",
+        f"Harga: <b>{price_str(quote.price)} {html.escape(quote.currency)}</b> · 24 jam lalu {price_str(quote.prev_close)}"
+        f" · ambang ±{str(threshold).removesuffix('.0').replace('.', ',')}%",
+        "", crypto_links(symbol),
+    ])
+
+
 # ---- pemantau sinyal -------------------------------------------------------
 @dataclass
 class WatchConfig:
@@ -120,13 +157,27 @@ class WatchConfig:
     market_hours_only: bool = False
     notify_trades: bool = True  # kirim juga transaksi bot auto-trading
     notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
+    # Crypto (Binance): pasar 24 jam, jadi tidak terpengaruh "hanya saat jam bursa".
+    crypto_symbols: list[str] = field(default_factory=list)
+    crypto_candle_interval: str = "1h"
+    crypto_move_pct: float = 5.0  # kabari bila perubahan 24 jam >= ±x% (sekali per hari per arah); 0 = mati
 
     def validate(self) -> None:
         self.symbols = sorted({normalize_symbol(s) for s in self.symbols if s.strip()})
+        self.crypto_symbols = sorted({normalize_pair(s) for s in self.crypto_symbols if str(s).strip()})
         self.bot_token, self.chat_id = self.bot_token.strip(), str(self.chat_id).strip()
         errors = []
-        if not self.symbols:
-            errors.append("Daftar simbol tidak boleh kosong")
+        if not self.symbols and not self.crypto_symbols:
+            errors.append("Isi minimal satu saham atau pasangan crypto")
+        bad = [s for s in self.crypto_symbols if not split_pair(s)]
+        if bad:
+            errors.append(f"Bukan pasangan crypto: {', '.join(bad)} (contoh: BTCUSDT)")
+        if len(self.symbols) + len(self.crypto_symbols) > 60:
+            errors.append("Maksimal 60 simbol dipantau")
+        if self.crypto_candle_interval not in KLINE_INTERVALS:
+            errors.append(f"Candle crypto harus salah satu dari {', '.join(KLINE_INTERVALS)}")
+        if not 0 <= self.crypto_move_pct <= 100:
+            errors.append("Ambang gerakan crypto harus 0–100%")
         if self.interval_seconds < 60:
             errors.append("Interval minimal 60 detik")
         if self.min_buy_score < 1 or self.max_sell_score > -1:
@@ -143,6 +194,7 @@ class SignalWatcher:
     def __init__(self, provider, db, env_token: str = "", env_chat_id: str = "",
                  http: httpx.Client | None = None, clock=time.time):
         self.provider = provider
+        self.crypto_provider = None  # BinanceProvider, dipasang oleh register_crypto
         self.db = db  # app.db.Database atau None
         self.env_token, self.env_chat_id = env_token, env_chat_id
         self.http = http
@@ -188,8 +240,8 @@ class SignalWatcher:
             data.pop("bot_token")  # UI mengirim balik token yang disamarkan -> jangan timpa
         cfg = WatchConfig(**{**asdict(self.config), **data, "enabled": self.config.enabled})
         cfg.validate()
-        if cfg.symbols != self.config.symbols:
-            self.last_action = {s: a for s, a in self.last_action.items() if s in cfg.symbols}
+        watched = set(cfg.symbols) | set(cfg.crypto_symbols)
+        self.last_action = {s: a for s, a in self.last_action.items() if s in watched}
         self.config = cfg
         self._save()
         return cfg
@@ -242,16 +294,36 @@ class SignalWatcher:
         except NotifierError as exc:
             return False, str(exc)
 
+    def _signal_change(self, sym: str, analysis: dict, message, price_text: str) -> dict | None:
+        """Kirim pesan bila sinyal BERUBAH menjadi BELI/JUAL. `message(action)` membuat isi pesan."""
+        cfg = self.config
+        score = analysis["score"]
+        action = "BUY" if score >= cfg.min_buy_score else "SELL" if score <= cfg.max_sell_score else "HOLD"
+        if action == self.last_action.get(sym):
+            return None
+        if action == "HOLD":
+            self.last_action[sym] = action  # sinyal mereda; catat diam-diam
+            return None
+        ok, err = self._send(message(action))
+        label = "BELI" if action == "BUY" else "JUAL"
+        if not ok:  # tidak dicatat sebagai terkirim -> dicoba lagi siklus berikutnya
+            return self._record("ERROR", sym, f"Sinyal {label} gagal dikirim: {err}")
+        self.last_action[sym] = action
+        return self._record(action, sym, f"Sinyal {label} skor {score:+d} @ {price_text}", sent=True)
+
     def scan(self) -> list[dict]:
         """Periksa semua simbol; kirim notifikasi untuk sinyal BELI/JUAL yang baru muncul."""
         with self._lock:
             now = self.clock()
             self.last_run = now
             cfg = self.config
-            if cfg.market_hours_only and not is_idx_market_open(datetime.fromtimestamp(now, timezone.utc)):
-                return [self._record("INFO", "-", "Bursa tutup, pemindaian dilewati")]
             out = []
-            for sym in cfg.symbols:
+            stocks = cfg.symbols
+            if stocks and cfg.market_hours_only and not is_idx_market_open(datetime.fromtimestamp(now, timezone.utc)):
+                stocks = []
+                if not cfg.crypto_symbols:
+                    return [self._record("INFO", "-", "Bursa tutup, pemindaian dilewati")]
+            for sym in stocks:
                 try:
                     analysis = analyze([c.close for c in self.provider.candles(sym, "1y", "1d")])
                     quote = self.provider.quote(sym)
@@ -260,26 +332,57 @@ class SignalWatcher:
                     continue
                 if cfg.notify_limits and not is_index(sym):
                     out.extend(self._check_limit(sym, quote, now))
-                score = analysis["score"]
-                action = "BUY" if score >= cfg.min_buy_score else "SELL" if score <= cfg.max_sell_score else "HOLD"
-                prev = self.last_action.get(sym)
-                if action == prev:
-                    continue
-                if action == "HOLD":
-                    self.last_action[sym] = action  # sinyal mereda; catat diam-diam
-                    continue
-                ok, err = self._send(format_signal(sym, action, analysis, quote))
-                label = "BELI" if action == "BUY" else "JUAL"
-                if ok:
-                    self.last_action[sym] = action
-                    at = index_value(quote.price) if is_index(sym) else rupiah(quote.price)
-                    out.append(self._record(action, sym, f"Sinyal {label} skor {score:+d} @ {at}", sent=True))
-                else:  # tidak dicatat sebagai terkirim -> dicoba lagi siklus berikutnya
-                    out.append(self._record("ERROR", sym, f"Sinyal {label} gagal dikirim: {err}"))
+                at = index_value(quote.price) if is_index(sym) else rupiah(quote.price)
+                rec = self._signal_change(sym, analysis, lambda a: format_signal(sym, a, analysis, quote), at)
+                if rec:
+                    out.append(rec)
+            out.extend(self._scan_crypto(now))
             self._save()
             if not out:
-                out.append(self._record("INFO", "-", f"Tidak ada sinyal baru ({len(cfg.symbols)} simbol dipindai)"))
+                scanned = len(stocks) + (len(cfg.crypto_symbols) if self.crypto_provider is not None else 0)
+                out.append(self._record("INFO", "-", f"Tidak ada sinyal baru ({scanned} simbol dipindai)"))
             return out
+
+    def _scan_crypto(self, now: float) -> list[dict]:
+        cfg = self.config
+        if not cfg.crypto_symbols:
+            return []
+        if self.crypto_provider is None:
+            return [self._record("WARN", "-", "Data crypto (Binance) belum tersedia, pasangan crypto dilewati")]
+        from .crypto import price_str
+        out = []
+        for sym in cfg.crypto_symbols:
+            try:
+                candles = self.crypto_provider.candles(sym, None, cfg.crypto_candle_interval, 300)
+                analysis = analyze([c.close for c in candles])
+                quote = self.crypto_provider.quote(sym)
+            except MarketDataError as exc:
+                out.append(self._record("WARN", sym, f"Data tidak tersedia: {exc}"))
+                continue
+            if cfg.crypto_move_pct:
+                out.extend(self._check_move(sym, quote, now))
+            rec = self._signal_change(
+                sym, analysis, lambda a: format_crypto_signal(sym, a, analysis, quote, cfg.crypto_candle_interval),
+                f"{price_str(quote.price)} {quote.currency}")
+            if rec:
+                out.append(rec)
+        return out
+
+    def _check_move(self, sym: str, quote, now: float) -> list[dict]:
+        """Kabarkan gerakan besar 24 jam — sekali per pasangan per hari per arah."""
+        threshold = self.config.crypto_move_pct
+        if abs(quote.change_pct) < threshold:
+            return []
+        direction = "UP" if quote.change_pct > 0 else "DOWN"
+        key = f"{datetime.fromtimestamp(now, WIB):%Y-%m-%d}:{direction}"
+        if self.last_limit.get(sym) == key:
+            return []
+        ok, err = self._send(format_crypto_move(sym, quote, threshold))
+        if not ok:
+            return [self._record("ERROR", sym, f"Notifikasi gerakan 24 jam gagal dikirim: {err}")]
+        self.last_limit[sym] = key
+        return [self._record("MOVE", sym, f"{'Naik' if direction == 'UP' else 'Turun'} {_pct(quote.change_pct)} dalam 24 jam",
+                             sent=True)]
 
     def _check_limit(self, sym: str, quote, now: float) -> list[dict]:
         """Kabarkan bila saham menyentuh ARA/ARB — sekali per saham per hari per jenis."""

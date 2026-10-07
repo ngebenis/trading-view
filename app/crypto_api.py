@@ -38,6 +38,7 @@ def register_crypto(app: FastAPI, settings: Settings, db, watcher=None, http=Non
     brokers = {"paper": paper, "testnet": testnet, "binance": live}
     bot = CryptoAutoTrader(brokers, provider, db, settings.crypto_max_position_pct, settings.enable_live_trading)
     if watcher is not None:
+        watcher.crypto_provider = provider  # sinyal crypto di notifikasi Telegram
         bot.listeners.append(watcher.on_autotrader_log)  # notifikasi transaksi lewat Telegram yang sama
 
     def get_broker(name: str):

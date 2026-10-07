@@ -14,6 +14,9 @@
     f.elements.bot_token.value = c.bot_token;
     f.elements.chat_id.value = c.chat_id;
     f.elements.symbols.value = c.symbols.join(", ");
+    f.elements.crypto_symbols.value = c.crypto_symbols.join(", ");
+    f.elements.crypto_candle_interval.value = c.crypto_candle_interval;
+    f.elements.crypto_move_pct.value = c.crypto_move_pct;
     for (const k of ["interval_seconds", "min_buy_score", "max_sell_score"]) f.elements[k].value = c[k];
     f.elements.market_hours_only.checked = c.market_hours_only;
     f.elements.notify_trades.checked = c.notify_trades;
@@ -28,6 +31,7 @@
     lastStatus = st;
     if (fill) fillForm(st);
     $("#notifDot").classList.toggle("on", st.running);
+    $("#cNotifDot")?.classList.toggle("on", st.running && st.config.crypto_symbols.length > 0);
     const btn = $("#notifToggle");
     btn.textContent = st.running ? "Hentikan" : "Mulai";
     btn.className = "primary " + (st.running ? "sell" : "buy");
@@ -36,10 +40,12 @@
     const active = Object.entries(st.last_action).filter(([, a]) => a !== "HOLD")
       .map(([s, a]) => `${s} ${a === "BUY" ? "BELI" : "JUAL"}`);
     $("#notifStatus").textContent = !st.configured ? "Belum tersambung ke Telegram — lihat panduan di bawah"
-      : (st.running ? "● Memantau" : "○ Berhenti") + ` · ${st.config.symbols.length} saham · pindaian terakhir ${time(st.last_run)}` +
+      : (st.running ? "● Memantau" : "○ Berhenti") + ` · ${st.config.symbols.length} saham · ${st.config.crypto_symbols.length} crypto` +
+        ` · pindaian terakhir ${time(st.last_run)}` +
         (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "");
 
-    const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL" };
+    const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL",
+                     MOVE: "GERAK 24J" };
     $("#notifLog").innerHTML = `<tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Keterangan</th><th>Telegram</th></tr>` +
       (st.history.length ? st.history.map((h) => `<tr><td>${new Date(h.time * 1000).toLocaleString("id-ID")}</td>
         <td class="kind kind-${h.kind}">${labels[h.kind] || h.kind}</td><td>${escapeHtml(h.symbol)}</td>
@@ -56,6 +62,9 @@
     const f = $("#notifForm");
     const body = {
       symbols: f.elements.symbols.value.split(",").map(cleanSymbol).filter(Boolean),
+      crypto_symbols: f.elements.crypto_symbols.value.split(",").map((x) => x.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean),
+      crypto_candle_interval: f.elements.crypto_candle_interval.value,
+      crypto_move_pct: Number(f.elements.crypto_move_pct.value),
       interval_seconds: Number(f.elements.interval_seconds.value),
       min_buy_score: Number(f.elements.min_buy_score.value),
       max_sell_score: Number(f.elements.max_sell_score.value),
@@ -102,6 +111,7 @@
     $("#notifForm").onsubmit = save;
     $("#notifFindChat").onclick = findChat;
     $("#notifUseWatchlist").onclick = () => { $("#notifForm").elements.symbols.value = state.watchlist.join(", "); };
+    $("#notifUseCryptoWatch").onclick = () => { $("#notifForm").elements.crypto_symbols.value = (window.cryptoWatchlist?.() || []).join(", "); };
     $("#notifTest").onclick = () => action("test", () => "Pesan uji terkirim — cek Telegram Anda");
     $("#notifRunOnce").onclick = () => action("run-once", (st) => {
       const sent = st.history.filter((h) => h.time >= st.last_run && h.sent).length;
@@ -115,5 +125,8 @@
 
   window.initNotifications = init;
   // Titik status di tab tetap akurat walau tab belum dibuka.
-  api("/api/notifications").then((st) => $("#notifDot").classList.toggle("on", st.running)).catch(() => {});
+  api("/api/notifications").then((st) => {
+    $("#notifDot").classList.toggle("on", st.running);
+    $("#cNotifDot")?.classList.toggle("on", st.running && st.config.crypto_symbols.length > 0);
+  }).catch(() => {});
 })();

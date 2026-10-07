@@ -105,6 +105,8 @@ class FakeBinance:
         if path == "/api/v3/ticker/price":
             return httpx.Response(200, json=[{"symbol": s, "price": f"{p:.8f}"} for s, p in self.prices.items()])
         if path == "/api/v3/klines":
+            if q.get("symbol") not in self.prices:
+                return self._err(-1121, "Invalid symbol.")
             return httpx.Response(200, json=self.klines(q["symbol"], q["interval"], int(q["limit"])))
         return self.signed(request, path, q)
 

@@ -303,7 +303,28 @@ Cara kerja:
   restart server tidak memicu pesan ganda.
 - Bila pengiriman gagal (mis. internet putus), sinyal dicoba kirim lagi di pemindaian berikutnya.
 - Opsional: setiap transaksi bot auto-trading (beli/jual, stop-loss, take-profit) ikut dikirim.
-- Opsi "Hanya saat jam bursa" melewati pemindaian di luar jam perdagangan IDX.
+- Opsi "Hanya saat jam bursa" melewati pemindaian **saham** di luar jam perdagangan IDX.
+
+**Sinyal crypto (Binance).** Isi kolom *Pasangan crypto yang dipantau* (mis. `BTCUSDT, ETHUSDT`, atau klik
+**Pakai watchlist crypto**); tombol *Notifikasi Telegram* di tampilan Crypto langsung membuka pengaturan ini.
+Bot token, chat ID, interval, ambang skor & tombol Mulai dipakai bersama dengan saham.
+- Sinyal dihitung dari candle pilihan (15 mnt / 1 jam / 4 jam / harian, bawaan 1 jam) dan dikirim saat
+  **berubah** menjadi BELI/JUAL, sama seperti saham. Crypto selalu dipindai (pasar 24 jam).
+- Pengganti ARA/ARB untuk crypto: **gerakan besar 24 jam** — bila perubahan 24 jam ≥ ±x% (bawaan 5%,
+  0 = mati), dikabarkan sekali per pasangan per hari per arah.
+- Transaksi bot auto-trading crypto ikut dikirim bila "Kirim juga transaksi bot" aktif.
+
+```
+🟢 SINYAL BELI — BTCUSDT (crypto · candle 1 jam)
+Harga: 65.025,07 USDT (+2,00% 24 jam)
+Skor: +2
+• RSI 23.6 < 30 (oversold)
+• Histogram MACD berbalik positif
+Binance · TradingView
+
+🚀 BTCUSDT naik +5,73% dalam 24 jam
+Harga: 65.025,07 USDT · 24 jam lalu 61.500,50 · ambang ±5%
+```
 
 Contoh pesan:
 

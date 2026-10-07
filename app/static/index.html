@@ -310,7 +310,7 @@
           <li>Klik <b>Cari chat ID</b>, pilih chat Anda, simpan, lalu klik <b>Kirim pesan uji</b>.</li>
         </ol>
       </details>
-      <form id="notifForm" class="auto-form">
+      <form id="notifForm" class="auto-form" novalidate>
         <label class="wide-2">Bot token
           <input name="bot_token" type="password" autocomplete="off" placeholder="123456789:AA...">
           <small id="tokenHint"></small>
@@ -326,18 +326,28 @@
         <label class="wide">Saham yang dipantau (pisahkan koma)
           <input name="symbols" placeholder="BBCA, BBRI, TLKM">
         </label>
+        <label class="wide"><span>Pasangan crypto yang dipantau (Binance, pisahkan koma — kosongkan bila tidak perlu)</span>
+          <span class="inline"><input name="crypto_symbols" placeholder="BTCUSDT, ETHUSDT, SOLUSDT">
+            <button id="notifUseCryptoWatch" type="button">Pakai watchlist crypto</button></span>
+        </label>
+        <label>Candle sinyal crypto
+          <select name="crypto_candle_interval">
+            <option value="15m">15 mnt</option><option value="1h">1 jam</option><option value="4h">4 jam</option><option value="1d">Harian</option>
+          </select>
+        </label>
+        <label>Kabari gerakan crypto 24 jam ≥ ±% (0 = mati)<input name="crypto_move_pct" type="number" step="0.5" min="0" max="100"></label>
         <label>Interval pemindaian (detik)<input name="interval_seconds" type="number" min="60"></label>
         <label>Kirim BELI bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
         <label>Kirim JUAL bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
-        <label class="check"><input name="market_hours_only" type="checkbox"> Hanya saat jam bursa</label>
-        <label class="check"><input name="notify_trades" type="checkbox"> Kirim juga transaksi bot auto-trading</label>
+        <label class="check"><input name="market_hours_only" type="checkbox"> Saham hanya saat jam bursa (crypto tetap 24 jam)</label>
+        <label class="check"><input name="notify_trades" type="checkbox"> Kirim juga transaksi bot auto-trading (saham &amp; crypto)</label>
         <div class="wide auto-save">
           <button class="primary">Simpan pengaturan</button>
           <button id="notifUseWatchlist" type="button">Pakai watchlist</button>
           <span id="notifMsg" class="msg"></span>
         </div>
       </form>
-      <p class="disclaimer">Pesan dikirim saat sinyal <b>berubah</b> menjadi BELI atau JUAL — sinyal yang sama tidak dikirim ulang sampai mereda lalu muncul lagi. Sinyal memakai candle harian.</p>
+      <p class="disclaimer">Pesan dikirim saat sinyal <b>berubah</b> menjadi BELI atau JUAL — sinyal yang sama tidak dikirim ulang sampai mereda lalu muncul lagi. Sinyal saham memakai candle harian; sinyal crypto memakai candle pilihan di atas. Saham yang menyentuh ARA/ARB dan crypto yang bergerak melewati ambang 24 jam dikabarkan sekali per hari.</p>
       <h2>Riwayat notifikasi</h2>
       <div class="table-wrap"><table id="notifLog"></table></div>
     </div>
@@ -482,6 +492,7 @@
       <button class="ctab active" data-ctab="portfolio">Portofolio</button>
       <button class="ctab" data-ctab="orders">Riwayat Order</button>
       <button class="ctab" data-ctab="bot">Auto-Trading Crypto <span id="cBotDot" class="dot"></span></button>
+      <button id="cOpenNotif" class="ctab" type="button" title="Pengaturan Telegram ada di tab Notifikasi">Notifikasi Telegram <span id="cNotifDot" class="dot"></span></button>
       <button id="cResetPaper" class="link">Reset simulasi crypto</button>
     </div>
     <div id="cPortfolioPane">

@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -25,7 +25,9 @@ from .idx_rules import (ARA_PCTS, ARB_PCTS, LOT_SIZE, is_index, limit_status, no
                         round_to_tick, stockbit_url, tick_size,
                         tradingview_symbol, tradingview_url)
 from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
+from .crypto_api import register_crypto
 from .market_data import MarketDataError, get_provider
+from .price_feed import FeedError, FeedProvider, PriceFeed, pine_script
 from .notifier import NotifierError, SignalWatcher
 from .webhooks import TradingViewWebhook, WebhookError
 from .strategy import analyze
@@ -51,11 +53,14 @@ class OrderRequest(BaseModel):
     confirm_live: bool = False
 
 
-def create_app(settings: Settings = default_settings, provider=None, telegram_http=None) -> FastAPI:
-    provider = provider or get_provider(settings.market_data_provider)
+def create_app(settings: Settings = default_settings, provider=None, telegram_http=None,
+               binance_http=None) -> FastAPI:
     db = Database(settings.database_path or settings.data_dir / "app.db")
     db.migrate_json(settings.data_dir, settings.paper_starting_cash)  # sekali, dari versi berbasis JSON
     db.prune_logs(keep_days=180)
+    # Harga dari price feed webhook TradingView (bila aktif & segar), selebihnya dari provider biasa.
+    feed = PriceFeed(db)
+    provider = FeedProvider(provider or get_provider(settings.market_data_provider), feed)
     paper = PaperBroker(db, settings.paper_starting_cash,
                         settings.buy_fee_pct, settings.sell_fee_pct)
     autotrader = AutoTrader(paper, provider, db, settings.max_position_pct)
@@ -76,15 +81,22 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
                 watcher.start()
             except NotifierError:
                 pass
+        if crypto["bot"].config.enabled and crypto["bot"].target.available():
+            crypto["bot"].start()
         yield
         if autotrader.running:
             autotrader._stop.set()
+        if crypto["bot"].running:
+            crypto["bot"]._stop.set()
         watcher.shutdown()
 
     app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
     app.state.autotrader = autotrader
     app.state.watcher = watcher
     app.state.webhook = webhook
+    app.state.feed = feed
+    crypto = register_crypto(app, settings, db, watcher, binance_http)
+    app.state.crypto = crypto
     app.state.db = db
 
     # Pengaman tunnel: request yang lewat proxy/tunnel (ngrok, Cloudflare Tunnel, dll) membawa header
@@ -396,8 +408,24 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     @app.post("/api/webhooks/tradingview")
     async def tradingview_webhook(request: Request, background: BackgroundTasks, secret: str | None = None):
         try:
-            alert, entry = webhook.accept(await request.body(), secret)
+            body = await request.body()
+            payload = webhook.parse_body(body)
+            if payload.get("type") == "bars":  # price feed dari skrip Pine, bukan alert sinyal
+                webhook.check_secret(payload, secret)
+                try:
+                    result = await run_in_threadpool(feed.ingest, payload)
+                except FeedError as exc:
+                    return JSONResponse({"ok": False, "detail": str(exc)}, status_code=exc.status)
+                return {"ok": True, **result}
+            alert, entry = webhook.accept(body, secret, payload)
         except WebhookError as exc:
+            if exc.status == 401:  # kode rahasia salah: catat & (bila perlu) kabari Telegram
+                ip = (request.headers.get("cf-connecting-ip")
+                      or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                      or (request.client.host if request.client else ""))
+                background.add_task(webhook.report_auth_failure, ip)
+                return JSONResponse({"ok": False, "detail": str(exc)}, status_code=exc.status,
+                                    background=background)
             return JSONResponse({"ok": False, "detail": str(exc)}, status_code=exc.status)
         # Balas TradingView secepatnya (batas waktunya ~3 detik); aksi dijalankan setelahnya.
         background.add_task(webhook.process, alert)
@@ -419,6 +447,23 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     def webhook_regenerate():
         webhook.regenerate_secret()
         return webhook.status()
+
+    # ---- price feed TradingView ----------------------------------------
+    @app.get("/api/feed")
+    def feed_status():
+        return feed.status()
+
+    @app.put("/api/feed/config")
+    def feed_config(data: dict = Body(...)):
+        try:
+            feed.update_config(data)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+        return feed.status()
+
+    @app.get("/api/feed/pine", response_class=PlainTextResponse)
+    def feed_pine():
+        return pine_script(webhook.config.secret, feed.config.symbols)
 
     # ---- backtest ------------------------------------------------------
     @app.post("/api/backtest")

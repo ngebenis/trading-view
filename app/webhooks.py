@@ -10,6 +10,7 @@ TradingView tidak bisa menambah header khusus, jadi kode rahasia dikirim di isi 
 (atau lewat `?secret=` di URL). Order hanya dieksekusi di akun Paper Trading.
 """
 import hashlib
+from datetime import datetime
 import hmac
 import html
 import json
@@ -21,8 +22,10 @@ from collections import deque
 from dataclasses import asdict, dataclass, field, fields
 
 from .brokers import BrokerError, Order, OrderType, PaperBroker, Side
-from .idx_rules import LOT_SIZE, is_index, normalize_symbol, price_limits, round_to_tick
+from .autotrader import WIB, rupiah
+from .idx_rules import LOT_SIZE, is_index, limit_status, normalize_symbol, price_limits, round_to_tick
 from .market_data import MarketDataError
+from .notifier import index_value, stock_links
 
 ACTIONS = {
     "buy": "BUY", "beli": "BUY", "long": "BUY",
@@ -30,6 +33,7 @@ ACTIONS = {
 }
 MODES = ("log", "notify", "order")  # order = notifikasi + order simulasi
 DEDUP_SECONDS = 60
+AUTH_NOTICE_SECONDS = 600  # peringatan kode rahasia salah: maksimal satu pesan per 10 menit
 MAX_BODY = 10_000
 
 
@@ -47,6 +51,7 @@ class WebhookConfig:
     position_pct: float = 10.0  # ukuran order BELI bila alert tidak menyebut "lots"
     max_lots: int = 1000        # batas atas lot per alert
     allowed_symbols: list[str] = field(default_factory=list)  # kosong = semua
+    notify_security: bool = True  # kabari Telegram bila ada alert dengan kode rahasia salah
 
     def validate(self, max_position_pct: float) -> None:
         self.allowed_symbols = sorted({normalize_symbol(s) for s in self.allowed_symbols if s.strip()})
@@ -71,6 +76,11 @@ class Alert:
     lots: int | None
     mode: str | None     # override mode per alert (log/notify/order)
     message: str
+
+
+def pct(x: float) -> str:
+    """+1,25% (format Indonesia, selalu bertanda)."""
+    return f"{x:+.2f}%".replace(".", ",")
 
 
 def parse_alert(payload: dict) -> Alert:
@@ -116,6 +126,8 @@ class TradingViewWebhook:
         self.clock = clock
         self.log: deque[dict] = deque(db.recent_logs("webhook", 200) if db else (), maxlen=200)
         self._recent: dict[str, float] = {}
+        self._auth_failures: list[tuple[float, str]] = []  # (waktu, IP) sejak peringatan terakhir
+        self._auth_last_notice = 0.0
         self._lock = threading.Lock()
         self.config = self._load()
 
@@ -154,15 +166,18 @@ class TradingViewWebhook:
                           ensure_ascii=False).replace('"{{close}}"', "{{close}}")
 
     # ---- menerima alert ----------------------------------------------
-    def authenticate(self, payload: dict, query_secret: str | None) -> None:
-        if not self.config.enabled:
-            raise WebhookError("Webhook nonaktif", 403)
+    def check_secret(self, payload: dict, query_secret: str | None) -> None:
         given = str(payload.get("secret") or query_secret or "")
         if not given or not hmac.compare_digest(given.encode(), self.config.secret.encode()):
             raise WebhookError("Kode rahasia salah", 401)
 
-    def accept(self, body: bytes, query_secret: str | None = None) -> tuple[Alert, dict]:
-        """Validasi cepat (dijalankan sebelum membalas TradingView). Pemrosesan di `process`."""
+    def authenticate(self, payload: dict, query_secret: str | None) -> None:
+        if not self.config.enabled:
+            raise WebhookError("Webhook nonaktif", 403)
+        self.check_secret(payload, query_secret)
+
+    @staticmethod
+    def parse_body(body: bytes) -> dict:
         if len(body) > MAX_BODY:
             raise WebhookError("Pesan alert terlalu besar", 413)
         try:
@@ -171,6 +186,13 @@ class TradingViewWebhook:
             raise WebhookError("Isi alert harus JSON — salin template pesan dari tab Webhook") from None
         if not isinstance(payload, dict):
             raise WebhookError("Isi alert harus objek JSON")
+        return payload
+
+    def accept(self, body: bytes, query_secret: str | None = None,
+               payload: dict | None = None) -> tuple[Alert, dict]:
+        """Validasi cepat (dijalankan sebelum membalas TradingView). Pemrosesan di `process`."""
+        if payload is None:
+            payload = self.parse_body(body)
         self.authenticate(payload, query_secret)
         alert = parse_alert(payload)
         cfg = self.config
@@ -190,7 +212,7 @@ class TradingViewWebhook:
         label = {"BUY": "BELI", "SELL": "JUAL"}.get(alert.action, "INFO")
         parts = [label]
         if alert.price:
-            parts.append(f"@ {alert.price:g}")
+            parts.append(f"@ {index_value(alert.price) if is_index(alert.symbol) else rupiah(alert.price)}")
         if alert.lots:
             parts.append(f"{alert.lots} lot")
         if alert.message:
@@ -207,27 +229,32 @@ class TradingViewWebhook:
     def process(self, alert: Alert) -> list[dict]:
         """Jalankan aksi alert: catat, kirim Telegram, dan/atau order simulasi."""
         mode = alert.mode or self.config.mode
+        if mode == "log":
+            return []
+        quote, quote_error = None, None
+        try:  # harga terkini sekali untuk order & isi pesan
+            quote = self.provider.quote(alert.symbol) if self.provider is not None else None
+        except MarketDataError as exc:
+            quote_error = str(exc)
         out = []
         order_result = None
         if mode == "order" and alert.action:
-            order_result = self._order(alert)
+            order_result = self._order(alert, quote, quote_error)
             out.append(order_result)
-        if mode in ("notify", "order"):
-            out.append(self._notify(alert, order_result))
+        out.append(self._notify(alert, order_result, quote))
         return out
 
-    def _order(self, alert: Alert) -> dict:
+    def _order(self, alert: Alert, quote=None, quote_error: str | None = None) -> dict:
         sym = alert.symbol
         if is_index(sym):
             return self._record("SKIP", sym, "Indeks tidak bisa diperdagangkan, order dilewati")
         limits = None
-        try:
-            quote = self.provider.quote(sym)
+        if quote is not None:
             price, limits = quote.price, price_limits(quote.prev_close)
-        except MarketDataError as exc:
-            if not alert.price:
-                return self._record("ERROR", sym, f"Harga tidak tersedia: {exc}")
+        elif alert.price:
             price = alert.price  # pakai harga dari TradingView bila data pasar gagal
+        else:
+            return self._record("ERROR", sym, f"Harga tidak tersedia: {quote_error or 'tidak ada data'}")
         held = self.broker.positions.get(sym, {}).get("shares", 0) - self.broker._reserved_shares(sym)
         if alert.action == "SELL":
             available = held // LOT_SIZE
@@ -254,23 +281,85 @@ class TradingViewWebhook:
             self.broker.place_order(order, price, limits)
         except BrokerError as exc:
             return self._record("ERROR", sym, f"Order {side.value} ditolak: {exc}")
-        return self._record("ORDER", sym, f"{side.value} {lots} lot @ {order.fill_price:g} (simulasi)",
+        return self._record("ORDER", sym, f"{side.value} {lots} lot @ {rupiah(order.fill_price)} (simulasi)",
                             order_id=order.id)
 
-    def _notify(self, alert: Alert, order_result: dict | None) -> dict:
+    def _telegram_ready(self) -> bool:
         n = self.notifier
-        if n is None or not (n.token and n.chat_id):
-            return self._record("SKIP", alert.symbol, "Telegram belum diatur, notifikasi dilewati")
-        icon = {"BUY": "🟢", "SELL": "🔴"}.get(alert.action, "📡")
-        lines = [f"{icon} <b>Alert TradingView — {html.escape(alert.symbol)}</b>",
-                 html.escape(self._describe(alert))]
-        if order_result is not None:
-            lines.append(f"Order simulasi: {html.escape(order_result['message'])}")
+        return n is not None and bool(n.token and n.chat_id)
+
+    def _send(self, text: str) -> str | None:
+        """Kirim pesan; kembalikan pesan galat atau None bila berhasil."""
         try:
-            n.telegram().send(n.chat_id, "\n".join(lines))
+            self.notifier.telegram().send(self.notifier.chat_id, text)
+            return None
         except Exception as exc:  # NotifierError / jaringan
-            return self._record("ERROR", alert.symbol, f"Telegram gagal: {exc}")
+            return str(exc)
+
+    def format_message(self, alert: Alert, order_result: dict | None, quote) -> str:
+        sym = alert.symbol
+        money = (lambda x: index_value(x)) if is_index(sym) else rupiah  # noqa: E731
+        icon = {"BUY": "🟢", "SELL": "🔴"}.get(alert.action, "📡")
+        lines = [f"{icon} <b>Alert TradingView — {html.escape(sym)}</b>",
+                 f"Sinyal: {html.escape(self._describe(alert))}"]
+        if quote is not None:
+            line = f"Harga terkini: <b>{money(quote.price)}</b> ({pct(quote.change_pct)} hari ini)"
+            if alert.price:
+                line += f" · {pct((quote.price / alert.price - 1) * 100)} dari harga alert"
+            lines.append(line)
+            limits = None if is_index(sym) else price_limits(quote.prev_close)
+            if limits:
+                status = limit_status(quote.price, limits)
+                lim = f"ARB {rupiah(limits[0])} · ARA {rupiah(limits[1])}"
+                if status:
+                    lim += f" · ⚠️ <b>sedang {status}</b>"
+                lines.append(lim)
+        if order_result is not None:
+            kind = order_result["kind"]
+            label = {"ORDER": "✅ Order simulasi", "SKIP": "⏭ Order dilewati", "ERROR": "❌ Order ditolak"}.get(kind, kind)
+            lines.append(f"{label}: {html.escape(order_result['message'])}")
+        pos = self.broker.positions.get(sym) if self.broker is not None else None
+        if pos and quote is not None:
+            cost = pos["shares"] * pos["avg_price"]
+            pl = pos["shares"] * quote.price - cost
+            lines.append(f"Posisi: {pos['shares'] // LOT_SIZE} lot · avg {rupiah(pos['avg_price'])} · "
+                         f"P/L {'+' if pl >= 0 else '-'}Rp{rupiah(abs(pl))} ({pct(pl / cost * 100 if cost else 0)})")
+        elif self.broker is not None and order_result is not None and not is_index(sym):
+            lines.append("Posisi: tidak ada")
+        lines += ["", stock_links(sym)]
+        return "\n".join(lines)
+
+    def _notify(self, alert: Alert, order_result: dict | None, quote=None) -> dict:
+        if not self._telegram_ready():
+            return self._record("SKIP", alert.symbol, "Telegram belum diatur, notifikasi dilewati")
+        err = self._send(self.format_message(alert, order_result, quote))
+        if err:
+            return self._record("ERROR", alert.symbol, f"Telegram gagal: {err}")
         return self._record("NOTIFY", alert.symbol, "Notifikasi Telegram terkirim")
+
+    def report_auth_failure(self, ip: str) -> dict | None:
+        """Catat alert dengan kode rahasia salah; kabari Telegram maksimal sekali per 10 menit."""
+        now = self.clock()
+        self._auth_failures.append((now, ip or "?"))
+        entry = self._record("AUTH", "-", f"Alert ditolak: kode rahasia salah (dari {ip or '?'})")
+        if not (self.config.notify_security and self._telegram_ready()):
+            return entry
+        if now - self._auth_last_notice < AUTH_NOTICE_SECONDS:
+            return entry  # dikumpulkan ke peringatan berikutnya
+        attempts, ips = len(self._auth_failures), sorted({i for _, i in self._auth_failures})
+        when = datetime.fromtimestamp(now, WIB).strftime("%d/%m %H:%M")
+        text = "\n".join([
+            "⚠️ <b>Webhook: alert dengan kode rahasia salah</b>",
+            f"{attempts} percobaan ditolak (terakhir {when} WIB) dari: {html.escape(', '.join(ips[:5]))}"
+            + (f" dan {len(ips) - 5} lainnya" if len(ips) > 5 else ""),
+            "Bila ini bukan Anda (mis. pesan alert lama), alamat webhook mungkin diketahui orang lain —",
+            "ganti kode rahasia di tab Webhook lalu perbarui pesan alert di TradingView.",
+        ])
+        err = self._send(text)
+        if err:
+            return self._record("ERROR", "-", f"Peringatan keamanan gagal dikirim: {err}")
+        self._auth_last_notice, self._auth_failures = now, []
+        return self._record("SECURITY", "-", f"Peringatan keamanan terkirim ({attempts} percobaan)")
 
     def status(self) -> dict:
         cfg = asdict(self.config)

@@ -16,6 +16,8 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, beta, vs **IHSG** & vs beli & tahan
 - 🔌 Arsitektur **adapter broker**: Paper Trading (aktif), Stockbit & Pluang (lihat batasan di bawah)
 - 🛡️ Pengaman: batas nilai order per % ekuitas, live trading mati secara default + konfirmasi per order
+- 🪙 **Crypto lewat Binance** (API resmi): harga real-time, grafik, order & auto-trading di akun simulasi USDT,
+  **Binance Spot Testnet**, atau akun Binance asli (terkunci secara default)
 
 ## Menjalankan
 
@@ -84,6 +86,7 @@ real-time sesungguhnya hanya tersedia lewat feed berlisensi (layanan data IDX / 
 API resmi sekuritas). Bila Anda punya akses seperti itu, cukup buat provider baru dengan metode
 `quote()` dan `candles()` seperti di `app/market_data.py` — mode live, grafik, bot & notifikasi langsung
 memakainya. Dengan `MARKET_DATA_PROVIDER=demo`, harga demo bergerak sepanjang jam bursa untuk mencoba mode live.
+Alternatif yang sudah tersedia: **price feed dari TradingView** (di bawah) bila Anda berlangganan data IDX real-time di TradingView.
 
 ## 🚦 ARA / ARB (Auto Rejection)
 
@@ -219,11 +222,67 @@ gagal); BELI tanpa `lots` memakai % ekuitas; dibatasi *maks. lot per alert* dan 
 JUAL menjual posisi yang ada (semua bila tanpa `lots`); indeks tidak dieksekusi. Alert identik
 dalam 60 detik diabaikan. Order dari webhook ditandai **📡 webhook** di riwayat order.
 
+**Notifikasi Telegram.** Dengan aksi "Kirim ke Telegram" atau "Telegram + order simulasi" (Telegram
+diatur di tab **Notifikasi**), setiap alert dikirim ke Telegram berisi: sinyal & pesan alert, harga
+terkini (% hari ini dan selisih dari harga di alert), batas ARB/ARA (dengan tanda bila sedang ARA/ARB),
+hasil order (✅ berhasil / ❌ ditolak beserta alasannya / ⏭ dilewati), ringkasan posisi setelah order
+(lot, harga rata-rata, P/L), serta link TradingView & Stockbit. Contoh:
+
+```
+🟢 Alert TradingView — BBCA
+Sinyal: BELI @ 9.025 — EMA cross
+Harga terkini: 9.050 (+0,56% hari ini) · +0,28% dari harga alert
+ARB 7.650 · ARA 10.800
+✅ Order simulasi: BUY 11 lot @ 9.050 (simulasi)
+Posisi: 11 lot · avg 9.050 · P/L +Rp0 (+0,00%)
+TradingView · Stockbit
+```
+
+Alert dengan **kode rahasia salah** dicatat di log (jenis *DITOLAK*, beserta IP pengirim) dan
+memicu **peringatan keamanan** ke Telegram — maksimal satu pesan per 10 menit, berisi jumlah
+percobaan & IP. Bisa dimatikan di tab Webhook.
+
 **Keamanan.** TradingView tidak bisa mengirim header khusus, jadi alert diautentikasi dengan
 kode rahasia di isi pesan (bisa diganti kapan saja di tab Webhook). Karena aplikasi dibuka lewat
 tunnel, ada pengaman bawaan (`LOCAL_ONLY_GUARD=true`): request yang datang lewat tunnel/proxy
 (membawa header seperti `X-Forwarded-For` / `Cf-Connecting-Ip`) **hanya** boleh ke
 `/api/webhooks/tradingview` — UI dan API lain tetap hanya bisa dibuka dari komputer Anda.
+
+## 📶 Price feed dari TradingView (via webhook)
+
+Bila Anda punya paket TradingView yang mendukung webhook (dan langganan data real-time IDX di
+TradingView), harga bisa **dikirim TradingView sendiri** ke aplikasi ini setiap menit. Aplikasi
+tidak login ke TradingView dan tidak menyimpan password Anda; data datang lewat fitur alert
+webhook resmi TradingView ke endpoint yang sama dengan alert sinyal.
+
+1. Tab **Webhook → Price feed dari TradingView**: isi daftar saham (maks. 20, termasuk IHSG) lalu **Simpan**.
+2. Salin **skrip Pine** yang dibuat aplikasi (memuat kode rahasia — jangan dipublikasikan) ke Pine Editor
+   TradingView, **Add to chart** pada grafik **1 menit** saham yang ramai (mis. `IDX:BBCA`).
+3. Buat alert: *Condition* = "IDX Trading View price feed" → **Any alert() function call**, centang
+   **Webhook URL** (alamat tunnel + `/api/webhooks/tradingview`). Kolom *Message* tidak dipakai.
+4. Klik **Aktifkan**. Tabel status menunjukkan harga, bar terakhir & kapan diterima untuk tiap saham.
+
+Setiap bar ditutup, skrip mengirim satu pesan berisi OHLCV semua saham (`request.security`) plus
+penutupan kemarin:
+
+```json
+{"secret": "…", "type": "bars", "tf": "1",
+ "bars": [["IDX:BBCA", 1791340800000, 9025, 9050, 9000, 9050, 123400, 8950], …]}
+```
+
+- Selama feed **segar**, harga terkini, mode live (status "data hampir real-time (TradingView)"),
+  kedipan harga, ARA/ARB, bot, notifikasi & order simulasi memakai harga dari TradingView. Grafik
+  intraday 1/5/15 menit dan candle harian hari ini digabung dengan bar dari feed.
+- Bila tidak ada bar baru lebih lama dari batas "basi" (bawaan 180 detik, min. 2,5× panjang bar) saat
+  bursa buka, aplikasi otomatis kembali ke sumber data biasa. Setelah bursa tutup, harga terakhir feed
+  hari itu tetap dipakai.
+- Hanya saham di daftar yang diterima; bar lebih lama dari 2 hari diabaikan. Bar disimpan di SQLite
+  (tabel `feed_bars`, 7 hari) agar grafik tetap utuh setelah server dimulai ulang.
+- Bila kode rahasia diganti, salin ulang skrip ke TradingView.
+
+Batasan: harga datang per penutupan bar (paling cepat 1 menit), bukan per transaksi; jumlah saham per
+skrip dibatasi `request.security` Pine (20 saham); alert TradingView punya batas jumlah alert aktif
+per paket.
 
 ## 🔔 Notifikasi Telegram
 
@@ -283,6 +342,39 @@ stop-loss/take-profit, cooldown, dan maks. posisi diperlakukan persis seperti bo
 Batasan: memakai candle harian, mengabaikan slippage, likuiditas/volume, ARA/ARB, dan antrean order.
 Hasil masa lalu tidak menjamin hasil masa depan. Waktu proses ±1–2 detik per saham untuk 2 tahun data.
 
+## 🪙 Crypto (Binance)
+
+Klik **Crypto** di header untuk beralih dari saham IDX ke pasar crypto. Semua lewat **API resmi
+Binance Spot** — aplikasi tidak pernah meminta password Binance.
+
+- **Harga & grafik real-time** dari endpoint publik Binance (tanpa API key): watchlist pasangan
+  (mis. `BTCUSDT`, `ETH/USDT`), harga diperbarui ±3 detik dengan kedipan naik/turun, candle 1 mnt–harian,
+  EMA 12/26, volume, sinyal teknikal dan penanda transaksi akun yang dipilih.
+- **Tiga akun** (pilih di form order):
+
+  | Akun | Uang | Yang dibutuhkan |
+  |---|---|---|
+  | Simulasi (USDT) | palsu, saldo awal `CRYPTO_PAPER_STARTING_USDT` | tidak ada |
+  | Binance Spot Testnet | palsu, di server Binance | `BINANCE_TESTNET_API_KEY/SECRET` dari [testnet.binance.vision](https://testnet.binance.vision) |
+  | Binance asli | **sungguhan** | `BINANCE_API_KEY/SECRET` + `ENABLE_LIVE_TRADING=true` + konfirmasi per order |
+
+- **Order** Market/Limit, jumlah dalam aset dasar (BTC) atau nilai (USDT). Jumlah dibulatkan ke `stepSize`,
+  harga ke `tickSize`, dan nilai minimal (`minNotional`) dicek — sama seperti aturan pasangan di Binance.
+  Fee simulasi `CRYPTO_FEE_PCT` (0,1%); di Binance fee yang tercatat adalah fee sebenarnya dari bursa.
+- **Auto-trading crypto** (tab *Auto-Trading Crypto*): strategi sinyal yang sama dengan bot saham, dengan
+  candle 15 mnt / 1 jam / 4 jam / harian, stop-loss, take-profit, cooldown, maks. posisi, dan **batas nilai
+  per order (USDT)**. Pasar crypto buka 24 jam, jadi tidak ada pengecekan jam bursa. Transaksi bot ikut
+  dikirim ke Telegram bila notifikasi transaksi aktif.
+- **Bot hanya mengelola posisi yang dibukanya sendiri** (dihitung dari order "auto" yang terisi): saldo lain
+  di akun Binance Anda tidak pernah ikut dijual. Di akun asli bot butuh `ENABLE_LIVE_TRADING=true`, batas nilai
+  per order > 0, dan konfirmasi saat mulai; tombol "Jalankan 1 siklus" dinonaktifkan.
+
+**Membuat API key Binance (akun asli) dengan aman:** aktifkan hanya *Enable Spot & Margin Trading*,
+**jangan** aktifkan izin withdraw, batasi ke IP komputer Anda, dan simpan di `.env` (jangan di-commit).
+Mulailah di Testnet. Bila `api.binance.com` tidak bisa diakses dari jaringan Anda, data pasar bisa
+diambil dari endpoint resmi khusus data `BINANCE_DATA_URL=https://data-api.binance.vision`. Pastikan
+juga layanan Binance boleh Anda gunakan di negara Anda.
+
 ## ⚠️ Tentang eksekusi order di Stockbit / Pluang
 
 Stockbit dan Pluang **tidak menyediakan API trading publik resmi** untuk nasabah ritel.
@@ -313,6 +405,10 @@ app/
   backtest.py        Backtest bot dengan data historis
   notifier.py        Notifikasi Telegram & pemantau sinyal
   webhooks.py        Penerima webhook alert TradingView
+  price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
+  binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
+  crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
+  crypto_api.py      Endpoint /api/crypto/*
   fundamentals.py    Parser laporan keuangan XBRL IDX & rasio fundamental
   fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
   brokers/
@@ -349,10 +445,22 @@ tests/               Unit & API test
 | POST | `/api/notifications/test` · `/start` · `/stop` · `/run-once` | Pesan uji & kendali pemantau |
 | GET | `/api/fundamentals/{kode}` | Laporan keuangan, rasio & link unduh IDX |
 | POST | `/api/fundamentals/upload?ticker=KODE` | Upload `instance.zip` / `.xbrl` (body mentah) |
-| POST | `/api/webhooks/tradingview` | Penerima alert TradingView (satu-satunya endpoint publik) |
+| POST | `/api/webhooks/tradingview` | Penerima alert TradingView & price feed (`"type": "bars"`) — satu-satunya endpoint publik |
 | GET | `/api/webhooks` | Status, template pesan & log alert |
 | PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
+| GET | `/api/feed` | Status price feed TradingView per saham |
+| PUT | `/api/feed/config` | Aktif/nonaktif, daftar saham, batas data basi |
+| GET | `/api/feed/pine` | Skrip Pine siap salin (memuat kode rahasia) |
+| GET | `/api/crypto/config` | Status akun crypto (simulasi / testnet / binance) |
+| GET | `/api/crypto/quote/{pasangan}` | Harga 24 jam + aturan Binance (stepSize, tickSize, minNotional) |
+| GET | `/api/crypto/chart/{pasangan}?interval=1h&broker=paper` | Candle, EMA, sinyal & penanda transaksi |
+| GET | `/api/crypto/account?broker=paper` | Saldo & aset (dinilai dalam USDT) |
+| GET/POST | `/api/crypto/orders` | Riwayat / kirim order (`quantity` atau `quote_amount`; `confirm_live` untuk akun asli) |
+| DELETE | `/api/crypto/orders/{id}?broker=` | Batalkan order OPEN |
+| POST | `/api/crypto/paper/reset` | Reset simulasi crypto |
+| GET/PUT | `/api/crypto/autotrader` · `/config` | Status & pengaturan bot crypto |
+| POST | `/api/crypto/autotrader/start` · `/stop` · `/run-once` | Kendalikan bot crypto |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) — hasil disimpan |
 | GET | `/api/backtests` · `/api/backtests/{id}` | Riwayat backtest / hasil lengkap satu backtest |
 | DELETE | `/api/backtests/{id}` | Hapus backtest dari riwayat |

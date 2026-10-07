@@ -182,3 +182,122 @@ def test_api_and_tunnel_guard(tmp_path):
 def test_guard_can_be_disabled(tmp_path):
     client = TestClient(create_app(Settings(data_dir=tmp_path, local_only_guard=False), DemoProvider()))
     assert client.get("/api/config", headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 200
+
+
+# ---- pesan Telegram yang lebih lengkap & peringatan keamanan ------------------------------
+class PrevProvider(PriceProvider):
+    """Seperti PriceProvider, tapi penutupan kemarin bisa diatur (untuk ARA/ARB & % harian)."""
+
+    def __init__(self, prices, prevs):
+        super().__init__(prices)
+        self.prevs = prevs
+
+    def quote(self, symbol):
+        if symbol not in self.prices:
+            raise MarketDataError("tidak ada")
+        p, prev = self.prices[symbol], self.prevs.get(symbol, self.prices[symbol])
+        return Quote(symbol, p, prev, p - prev, (p / prev - 1) * 100)
+
+
+@pytest.fixture
+def rich(tmp_path):
+    tg = FakeTelegram()
+    provider = PrevProvider({"BBCA": 9050, "GOTO": 125, "IHSG": 7123.45}, {"BBCA": 9000, "GOTO": 100, "IHSG": 7100})
+    watcher = SignalWatcher(provider, None, http=tg.client())
+    watcher.update_config({"bot_token": TOKEN, "chat_id": "42"})
+    clock = {"t": 1_800_000_000.0}
+    hook = TradingViewWebhook(PaperBroker(None, 100_000_000, 0.15, 0.25), provider, None, 20,
+                              notifier=watcher, clock=lambda: clock["t"])
+    hook.update_config({"enabled": True})
+    return hook, tg, clock
+
+
+def test_rich_message_notify_only(rich):
+    hook, tg, _ = rich
+    send(hook, symbol="BBCA", action="buy", price=9025, message="EMA cross")
+    text = tg.sent[-1]["text"]
+    assert "🟢 <b>Alert TradingView — BBCA</b>" in text and "Sinyal: BELI @ 9.025 — EMA cross" in text
+    assert "Harga terkini: <b>9.050</b> (+0,56% hari ini) · +0,28% dari harga alert" in text
+    assert "ARB 7.650 · ARA 10.800" in text and "sedang" not in text
+    assert "Order" not in text and "Posisi" not in text  # mode notify: tanpa order
+    assert "symbols/IDX-BBCA/" in text and "stockbit.com/symbol/BBCA" in text
+
+
+def test_rich_message_order_success_and_position(rich):
+    hook, tg, _ = rich
+    hook.update_config({"mode": "order"})
+    send(hook, symbol="BBCA", action="buy", lots=3)
+    text = tg.sent[-1]["text"]
+    assert "✅ Order simulasi: BUY 3 lot @ 9.050 (simulasi)" in text
+    assert "Posisi: 3 lot · avg 9.050 · P/L +Rp0 (+0,00%)" in text
+    send(hook, symbol="BBCA", action="sell", lots=1, message="profit")
+    assert "Posisi: 2 lot" in tg.sent[-1]["text"]
+
+
+def test_rich_message_rejected_at_ara_and_skipped(rich):
+    hook, tg, _ = rich
+    hook.update_config({"mode": "order"})
+    send(hook, symbol="GOTO", action="buy", lots=1)  # acuan 100 (rentang <=200): ARA 35% = 135, harga 125
+    text = tg.sent[-1]["text"]
+    assert "ARB 85 · ARA 135" in text and "❌" not in text  # 125 belum ARA
+    hook.provider.prices["GOTO"] = 135
+    send(hook, symbol="GOTO", action="buy", lots=1, message="lagi")
+    text = tg.sent[-1]["text"]
+    assert "⚠️ <b>sedang ARA</b>" in text and "❌ Order ditolak:" in text and "tidak ada penjual" in text
+    send(hook, symbol="BBCA", action="sell")
+    text = tg.sent[-1]["text"]
+    assert "⏭ Order dilewati: Alert JUAL diabaikan: tidak punya posisi" in text and "Posisi: tidak ada" in text
+
+
+def test_rich_message_index_and_log_mode(rich):
+    hook, tg, _ = rich
+    hook.update_config({"mode": "order"})
+    send(hook, symbol="^JKSE", action="sell")
+    text = tg.sent[-1]["text"]
+    assert "Harga terkini: <b>7.123,45</b>" in text and "ARA" not in text and "Posisi" not in text
+    assert "⏭ Order dilewati: Indeks" in text
+    n = len(tg.sent)
+    send(hook, symbol="BBCA", action="buy", mode="log")
+    assert len(tg.sent) == n
+
+
+def test_security_alert_rate_limited(rich):
+    hook, tg, clock = rich
+    hook.report_auth_failure("203.0.113.9")
+    assert "kode rahasia salah" in tg.sent[-1]["text"] and "1 percobaan" in tg.sent[-1]["text"]
+    assert "203.0.113.9" in tg.sent[-1]["text"]
+    clock["t"] += 60
+    hook.report_auth_failure("198.51.100.7")
+    hook.report_auth_failure("198.51.100.7")
+    assert len(tg.sent) == 1  # dalam 10 menit: dikumpulkan
+    clock["t"] += 600
+    hook.report_auth_failure("203.0.113.9")
+    text = tg.sent[-1]["text"]
+    assert len(tg.sent) == 2 and "3 percobaan" in text and "198.51.100.7, 203.0.113.9" in text
+    assert [e["kind"] for e in list(hook.log)[:2]] == ["SECURITY", "AUTH"]
+    hook.update_config({"notify_security": False})
+    clock["t"] += 3600
+    hook.report_auth_failure("1.2.3.4")
+    assert len(tg.sent) == 2 and hook.log[0]["kind"] == "AUTH"
+
+
+def test_api_wrong_secret_logs_ip(tmp_path):
+    client = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider()))
+    client.put("/api/webhooks/config", json={"enabled": True})
+    r = client.post("/api/webhooks/tradingview", json={"secret": "salah", "symbol": "BBCA"},
+                    headers={"X-Forwarded-For": "203.0.113.9, 10.0.0.1"})
+    assert r.status_code == 401
+    log = client.get("/api/webhooks").json()["log"]
+    assert log[0]["kind"] == "AUTH" and "203.0.113.9" in log[0]["message"]
+    assert client.get("/api/webhooks").json()["config"]["notify_security"] is True
+
+
+def test_api_distinct_alerts_are_not_deduplicated(tmp_path):
+    client = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider()))
+    client.put("/api/webhooks/config", json={"enabled": True, "mode": "log"})
+    secret = client.get("/api/webhooks").json()["config"]["secret"]
+    for sym in ("BBCA", "TLKM"):
+        r = client.post("/api/webhooks/tradingview", content=json.dumps({"secret": secret, "symbol": sym}))
+        assert r.status_code == 200, r.text
+    again = client.post("/api/webhooks/tradingview", content=json.dumps({"secret": secret, "symbol": "TLKM"}))
+    assert again.status_code == 409

@@ -67,7 +67,7 @@ def index_value(x: float) -> str:
     return f"{x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-def _links(symbol: str) -> str:
+def stock_links(symbol: str) -> str:
     return (f'<a href="{tradingview_url(symbol)}">TradingView</a> · '
             f'<a href="{stockbit_url(symbol)}">Stockbit</a>')
 
@@ -84,7 +84,7 @@ def format_signal(symbol: str, action: str, analysis: dict, quote=None) -> str:
             lines.append(f"Harga: <b>{rupiah(quote.price)}</b> ({sign}{pct}%)")
     lines.append(f"Skor: <b>{analysis['score']:+d}</b>")
     lines += [f"• {html.escape(r)}" for r in analysis["reasons"]]
-    lines += ["", _links(symbol), "<i>Sinyal otomatis, bukan rekomendasi investasi.</i>"]
+    lines += ["", stock_links(symbol), "<i>Sinyal otomatis, bukan rekomendasi investasi.</i>"]
     return "\n".join(lines)
 
 
@@ -97,13 +97,13 @@ def format_limit(symbol: str, status: str, quote, limits: tuple[int, int]) -> st
         f"{icon} <b>{html.escape(symbol)} {label}</b>",
         f"Harga: <b>{rupiah(quote.price)}</b> ({sign}{pct}%) · batas {rupiah(level)}",
         f"Harga acuan {rupiah(quote.prev_close)} · rentang hari ini {rupiah(arb)} – {rupiah(ara)}",
-        "", _links(symbol),
+        "", stock_links(symbol),
     ])
 
 
 def format_trade(entry: dict) -> str:
     icon = "🛒" if entry.get("side") == "BUY" else "💰"
-    return (f"{icon} <b>Auto-trading (simulasi)</b>\n"
+    return (f"{icon} <b>{html.escape(entry.get('title') or 'Auto-trading (simulasi)')}</b>\n"
             f"{html.escape(entry['symbol'])}: {html.escape(entry['message'])}")
 
 

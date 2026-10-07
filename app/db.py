@@ -68,13 +68,35 @@ CREATE TABLE IF NOT EXISTS backtests (
     total_return_pct REAL,
     result      TEXT NOT NULL           -- JSON hasil lengkap
 );
+CREATE TABLE IF NOT EXISTS crypto_orders (  -- order crypto (simulasi, Binance Testnet, Binance asli)
+    id                TEXT PRIMARY KEY,
+    broker            TEXT NOT NULL,        -- paper / testnet / binance
+    symbol            TEXT NOT NULL,
+    created_at        REAL NOT NULL,
+    status            TEXT NOT NULL,
+    data              TEXT NOT NULL         -- JSON order lengkap
+);
+CREATE INDEX IF NOT EXISTS crypto_orders_broker ON crypto_orders (broker, created_at);
+CREATE TABLE IF NOT EXISTS feed_bars (      -- bar dari price feed webhook TradingView
+    symbol      TEXT NOT NULL,
+    seconds     INTEGER NOT NULL,           -- panjang bar
+    time        INTEGER NOT NULL,           -- waktu buka (epoch detik)
+    open        REAL NOT NULL,
+    high        REAL NOT NULL,
+    low         REAL NOT NULL,
+    close       REAL NOT NULL,
+    volume      INTEGER NOT NULL,
+    prev_close  REAL,
+    received_at REAL NOT NULL,
+    PRIMARY KEY (symbol, seconds, time)
+);
 """
 
 ORDER_COLUMNS = ("id", "symbol", "side", "lots", "order_type", "limit_price", "status", "fill_price",
                  "fee", "created_at", "filled_at", "message", "source")
 LOG_COLUMNS = ("time", "kind", "symbol", "message")
 # Kolom "level" dipakai log auto-trader; disimpan di kolom kind yang sama.
-LOG_KIND_ALIASES = {"autotrader": "level"}
+LOG_KIND_ALIASES = {"autotrader": "level", "crypto_autotrader": "level"}
 
 
 class Database:
@@ -171,6 +193,43 @@ class Database:
     def prune_logs(self, keep_days: int = 180) -> int:
         with self._lock:
             return self.conn.execute("DELETE FROM logs WHERE time < ?", (time.time() - keep_days * 86400,)).rowcount
+
+    # ---- order crypto ------------------------------------------------
+    def save_crypto_orders(self, broker: str, orders: list[dict]) -> None:
+        with self._lock:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO crypto_orders (id, broker, symbol, created_at, status, data) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [(o["id"], broker, o["symbol"], o["created_at"], o["status"], json.dumps(o)) for o in orders])
+
+    def load_crypto_orders(self, broker: str) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute("SELECT data FROM crypto_orders WHERE broker = ? ORDER BY created_at, rowid",
+                                     (broker,)).fetchall()
+        return [json.loads(r["data"]) for r in rows]
+
+    def delete_crypto_orders(self, broker: str) -> None:
+        with self._lock:
+            self.conn.execute("DELETE FROM crypto_orders WHERE broker = ?", (broker,))
+
+    # ---- price feed TradingView --------------------------------------
+    def save_feed_bars(self, rows) -> None:
+        """rows: (simbol, detik, Candle, close kemarin, waktu terima)."""
+        with self._lock:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO feed_bars (symbol, seconds, time, open, high, low, close, volume, "
+                "prev_close, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(sym, sec, b.time, b.open, b.high, b.low, b.close, b.volume, pc, at) for sym, sec, b, pc, at in rows])
+
+    def load_feed_bars(self, since: float) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute("SELECT * FROM feed_bars WHERE time >= ? ORDER BY symbol, received_at, time",
+                                     (since,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def prune_feed_bars(self, before: float) -> int:
+        with self._lock:
+            return self.conn.execute("DELETE FROM feed_bars WHERE time < ?", (before,)).rowcount
 
     # ---- backtest ----------------------------------------------------
     def save_backtest(self, result: dict) -> int:

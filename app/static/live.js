@@ -14,8 +14,9 @@
     if (!q.market_open) {
       return `bursa tutup · transaksi terakhir ${hhmmss(q.market_time * 1000)}`;
     }
-    if (age < 90) return "data hampir real-time";
-    return `data tertunda ±${Math.round(age / 60)} mnt dari bursa`;
+    const via = q.source === "tradingview" ? " (TradingView)" : "";
+    if (age < 90) return "data hampir real-time" + via;
+    return `data tertunda ±${Math.round(age / 60)} mnt dari bursa${via}`;
   }
 
   function render(mode) {
@@ -54,6 +55,7 @@
   }
 
   function connect() {
+    if (document.body.dataset.market === "crypto") { close(); key = ""; return; } // tampilan crypto punya polling sendiri
     if (document.hidden || !state.symbol) return;
     const syms = symbols();
     const k = `${syms.join(",")}|${state.symbol}`;

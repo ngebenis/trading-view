@@ -97,7 +97,7 @@ function renderWatchlist() {
   for (const s of state.watchlist) {
     const li = document.createElement("li");
     li.className = s === state.symbol ? "active" : "";
-    li.innerHTML = `<span>${s}</span><span><span class="wl-price" data-s="${s}"></span><span class="rm" title="Hapus">✕</span></span>`;
+    li.innerHTML = `<span class="wl-sym">${s}</span><span><span class="wl-price" data-s="${s}"></span><span class="rm" title="Hapus">✕</span></span>`;
     li.onclick = (ev) => {
       if (ev.target.classList.contains("rm")) {
         state.watchlist = state.watchlist.filter((x) => x !== s); saveWatchlist(); renderWatchlist();
@@ -145,11 +145,12 @@ function renderQuote(q, live = false) {
   $("#qPrice").textContent = fmtPrice(q.price, q.symbol);
   $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmtPrice(q.change, q.symbol)} (${fmt(q.change_pct, 2)}%)`;
   $("#qChange").className = "q-change " + cls(q.change);
-  if (live && prev != null && prev !== q.price) { // kedipkan harga saat berubah
+  if (live && prev != null && prev !== q.price) { // kedipkan kode saham & harga saat berubah
     const el = $("#qPrice");
     el.classList.remove("flash-up", "flash-down");
     void el.offsetWidth;
     el.classList.add(q.price > prev ? "flash-up" : "flash-down");
+    blink($("#qSymbol"), q.price - prev);
   }
   if (!$("#limitPrice").value || $("#limitPrice").dataset.symbol !== q.symbol) {
     $("#limitPrice").value = q.price; $("#limitPrice").dataset.symbol = q.symbol;
@@ -157,15 +158,33 @@ function renderQuote(q, live = false) {
   updateEstimate();
 }
 
+// Kedipan kode saham saat harga berubah: hijau bila naik, merah bila turun.
+// Harga terakhir disimpan per tempat tampil, agar render pertama/ulang tanpa perubahan tidak berkedip.
+const lastPrices = {};
+function priceMove(key, price) {
+  const prev = lastPrices[key];
+  lastPrices[key] = price;
+  return prev == null || price == null ? 0 : price - prev;
+}
+
+function blink(el, move) {
+  if (!el || !move) return;
+  el.classList.remove("blink-up", "blink-down");
+  void el.offsetWidth; // mulai ulang animasi bila harga berubah lagi saat masih berkedip
+  el.classList.add(move > 0 ? "blink-up" : "blink-down");
+}
+
 function renderWatchQuote(s, q) {
   const el = document.querySelector(`.wl-price[data-s="${s}"]`);
   if (!el) return;
   el.innerHTML = `${limitBadge(q.limit_status)}${fmtPrice(q.price, s)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
   el.className = "wl-price " + cls(q.change_pct);
+  blink(el.closest("li")?.querySelector(".wl-sym"), priceMove("wl:" + s, q.price));
 }
 
 function renderIhsg(q) {
-  $("#ihsgTicker").innerHTML = `IHSG <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
+  $("#ihsgTicker").innerHTML = `<span class="tk-sym">IHSG</span> <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
+  blink($("#ihsgTicker .tk-sym"), priceMove("ticker:IHSG", q.price));
 }
 
 // Batas Auto Rejection hari ini (dihitung server dari harga penutupan sebelumnya).
@@ -282,6 +301,7 @@ async function loadAccount() {
         <td class="${cls(p.unrealized_pl)}">${rp(p.unrealized_pl)} (${fmt(p.unrealized_pl_pct, 2)}%)</td></tr>`).join("")
         : `<tr><td colspan="6" style="text-align:left;color:var(--muted)">Belum ada posisi.</td></tr>`);
     pt.querySelectorAll("tr[data-s] a").forEach((a) => a.onclick = (e) => { e.preventDefault(); loadSymbol(a.closest("tr").dataset.s); });
+    a.positions.forEach((p) => blink(pt.querySelector(`tr[data-s="${p.symbol}"] a`), priceMove("pos:" + p.symbol, p.last_price)));
     const orders = await api(`/api/orders?broker=${state.broker}`);
     ot.innerHTML = `<tr><th>Waktu</th><th>Kode</th><th>Aksi</th><th>Tipe</th><th>Lot</th><th>Harga</th><th>Fee</th><th>Sumber</th><th>Status</th><th></th></tr>` +
       orders.map((o) => `<tr><td>${new Date(o.created_at * 1000).toLocaleString("id-ID")}</td><td>${o.symbol}</td>
@@ -402,11 +422,13 @@ async function init() {
   $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
   refreshIhsgTicker();
   // Harga diperbarui lewat mode live (live.js); polling ini hanya cadangan bila koneksi live putus.
+  const idxVisible = () => document.body.dataset.market !== "crypto";
   setInterval(() => {
+    if (!idxVisible()) return;
     if (!window.liveConnected?.()) { refreshWatchPrices(); refreshIhsgTicker(); }
     loadAccount(); window.refreshPriceChart?.();
   }, 60_000);
-  setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
+  setInterval(() => { if (idxVisible() && (!$("#autoPane").classList.contains("hidden") || state.autoRunning)) loadAuto(false); }, 15_000);
 }
 
 init();

@@ -9,11 +9,15 @@
 <body>
   <header>
     <div class="brand">IDX Trading View</div>
-    <form id="search">
+    <div id="marketSeg" class="seg-sm" role="group" aria-label="Pasar">
+      <button type="button" data-market="idx">Saham IDX</button>
+      <button type="button" data-market="crypto">Crypto</button>
+    </div>
+    <form id="search" class="idx-only">
       <input id="symbolInput" placeholder="Kode saham / indeks, mis. BBCA, IHSG" autocomplete="off">
       <button>Buka</button>
     </form>
-    <div class="header-right">
+    <div class="header-right idx-only">
       <button id="ihsgTicker" class="ticker" type="button" title="Buka grafik IHSG">IHSG …</button>
       <label>Broker
         <select id="brokerSelect"></select>
@@ -22,7 +26,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="idxMain" class="idx-only">
     <aside class="panel" id="watchlistPanel">
       <h2>Watchlist</h2>
       <ul id="watchlist"></ul>
@@ -100,7 +104,7 @@
     </aside>
   </main>
 
-  <section class="bottom">
+  <section class="bottom idx-only">
     <div class="tabs">
       <button class="tab active" data-tab="portfolio">Portofolio</button>
       <button class="tab" data-tab="orders">Riwayat Order</button>
@@ -201,6 +205,7 @@
         <label>Ukuran BELI (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
         <label>Maks. lot per alert<input name="max_lots" type="number" min="1"></label>
         <label class="wide">Simbol yang diizinkan (kosong = semua)<input name="allowed_symbols" placeholder="BBCA, TLKM"></label>
+        <label class="check wide"><input name="notify_security" type="checkbox"> Kabari Telegram bila ada alert dengan kode rahasia salah (maks. 1 pesan / 10 menit)</label>
         <div class="wide auto-save">
           <button class="primary">Simpan pengaturan</button>
           <span id="hookMsg" class="msg"></span>
@@ -211,6 +216,48 @@
         <code>"mode"</code> di pesan bersifat opsional. Alert yang sama dalam 60 detik diabaikan.</p>
       <h2>Alert masuk</h2>
       <div class="table-wrap"><table id="hookLog"></table></div>
+
+      <section id="feedSection" class="feed-section">
+        <div class="auto-head">
+          <div>
+            <b>Price feed dari TradingView</b>
+            <div id="feedStatus" class="muted"></div>
+          </div>
+          <div class="auto-actions">
+            <button id="feedToggle" type="button" class="primary buy">Aktifkan</button>
+          </div>
+        </div>
+        <details id="feedGuide" class="note guide">
+          <summary>Cara memasang (harga dikirim TradingView lewat webhook, tanpa login dari aplikasi)</summary>
+          <ol>
+            <li>Isi daftar saham di bawah lalu <b>Simpan</b>. Skrip Pine di bawahnya ikut diperbarui.</li>
+            <li>Di TradingView buka <b>Pine Editor</b>, tempel skrip, <b>Save</b>, lalu <b>Add to chart</b>. Pakai grafik
+              <b>1 menit</b> saham yang ramai (mis. IDX:BBCA): alert terkirim setiap bar grafik ini ditutup.</li>
+            <li>Buat alert: <b>Condition</b> = "IDX Trading View price feed", pilih <b>Any alert() function call</b>,
+              centang <b>Webhook URL</b> dan isi alamat webhook yang sama seperti di atas. Kolom Message tidak dipakai.</li>
+            <li>Klik <b>Aktifkan</b>. Saat bursa buka, tabel di bawah menunjukkan harga yang masuk tiap menit.</li>
+          </ol>
+          <p>Syarat: paket TradingView yang mendukung webhook, dan langganan data real-time IDX di TradingView agar harga tidak
+            tertunda. Bila feed berhenti lebih lama dari batas di bawah, aplikasi otomatis kembali ke sumber data biasa.
+            Skrip memuat kode rahasia webhook — jangan dipublikasikan; bila kode rahasia diganti, salin ulang skripnya.</p>
+        </details>
+        <form id="feedForm" class="auto-form">
+          <label class="wide"><span>Saham yang dikirim (maks. <span id="feedMax">20</span>, pisahkan dengan koma; IHSG boleh)</span>
+            <span class="inline"><input name="symbols" placeholder="BBCA, BBRI, TLKM, IHSG">
+              <button id="feedUseWatchlist" type="button">Pakai watchlist</button></span>
+          </label>
+          <label>Data dianggap basi setelah (detik)<input name="stale_seconds" type="number" min="60" max="3600" step="10"></label>
+          <div class="wide auto-save">
+            <button class="primary">Simpan</button>
+            <span id="feedMsg" class="msg"></span>
+          </div>
+        </form>
+        <label class="pine-label"><span>Skrip Pine untuk TradingView</span>
+          <textarea id="feedPine" readonly rows="10" spellcheck="false"></textarea>
+          <span class="inline"><button type="button" id="feedCopy">Salin skrip</button></span>
+        </label>
+        <div class="table-wrap"><table id="feedTable"></table></div>
+      </section>
     </div>
     <div id="fundPane" class="hidden">
       <div class="auto-head">
@@ -360,6 +407,138 @@
     </div>
   </section>
 
+
+  <!-- ================= Crypto (Binance) ================= -->
+  <main id="cryptoMain" class="crypto-only hidden">
+    <aside class="panel" id="cWatchPanel">
+      <h2>Pasangan</h2>
+      <ul id="cWatch" class="watch"></ul>
+      <form id="cAddWatch"><input id="cAddWatchInput" placeholder="+ tambah, mis. SOLUSDT" autocomplete="off"></form>
+      <p class="disclaimer">Harga dari API publik Binance (real-time, diperbarui tiap ±3 detik).</p>
+    </aside>
+
+    <section class="center">
+      <div class="quote-bar">
+        <span id="cSymbol" class="q-symbol">—</span>
+        <span id="cPrice" class="q-price">—</span>
+        <span id="cChange" class="q-change"></span>
+        <span id="cStatus" class="live-status"></span>
+        <span class="links">
+          <a id="cLnkBinance" target="_blank" rel="noopener">Binance ↗</a>
+          <a id="cLnkTradingView" target="_blank" rel="noopener">TradingView ↗</a>
+        </span>
+      </div>
+      <div class="chart-toolbar">
+        <div class="chart-controls">
+          <select id="cInterval" aria-label="Interval candle">
+            <option value="1m">1 mnt</option><option value="5m">5 mnt</option><option value="15m">15 mnt</option>
+            <option value="1h" selected>1 jam</option><option value="4h">4 jam</option><option value="1d">Harian</option>
+          </select>
+          <span class="muted">Penanda transaksi akun: <b id="cMarkerAcct">Simulasi</b></span>
+        </div>
+      </div>
+      <div class="chart lw-wrap">
+        <div id="cLegend" class="chart-legend"></div>
+        <div id="cChartMsg" class="chart-msg"></div>
+        <div id="cChart" class="lw-chart"></div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>Sinyal Teknikal</h2>
+      <div id="cSignal" class="signal">—</div>
+      <ul id="cReasons" class="reasons"></ul>
+      <p class="disclaimer">Dihitung dari candle interval grafik. Bukan rekomendasi investasi.</p>
+
+      <h2>Order</h2>
+      <form id="cOrderForm" class="order-form" novalidate>
+        <label>Akun
+          <select id="cBroker"></select>
+        </label>
+        <div id="cBrokerNote" class="note hidden"></div>
+        <div class="seg">
+          <button type="button" data-side="BUY" class="buy active">Beli</button>
+          <button type="button" data-side="SELL" class="sell">Jual</button>
+        </div>
+        <label>Tipe
+          <select id="cOrderType"><option value="MARKET">Market</option><option value="LIMIT">Limit</option></select>
+        </label>
+        <label id="cLimitWrap" class="hidden">Harga limit
+          <input id="cLimitPrice" type="number" step="any" min="0">
+        </label>
+        <label><span>Jumlah dalam <select id="cAmountUnit" class="inline-select"></select></span>
+          <input id="cAmount" type="number" step="any" min="0" value="50">
+          <small id="cRulesHint"></small>
+        </label>
+        <div class="estimate" id="cEstimate"></div>
+        <button id="cSubmit" class="primary buy">Beli</button>
+        <div id="cOrderMsg" class="msg"></div>
+      </form>
+    </aside>
+  </main>
+
+  <section id="cryptoBottom" class="bottom crypto-only hidden">
+    <div class="tabs">
+      <button class="ctab active" data-ctab="portfolio">Portofolio</button>
+      <button class="ctab" data-ctab="orders">Riwayat Order</button>
+      <button class="ctab" data-ctab="bot">Auto-Trading Crypto <span id="cBotDot" class="dot"></span></button>
+      <button id="cResetPaper" class="link">Reset simulasi crypto</button>
+    </div>
+    <div id="cPortfolioPane">
+      <div id="cSummary" class="summary"></div>
+      <div class="table-wrap"><table id="cPortfolio"></table></div>
+    </div>
+    <div id="cOrdersPane" class="hidden">
+      <div class="table-wrap"><table id="cOrders"></table></div>
+    </div>
+    <div id="cBotPane" class="hidden">
+      <div class="auto-head">
+        <div>
+          <b>Auto-trading crypto</b>
+          <div id="cBotStatus" class="muted"></div>
+        </div>
+        <div class="auto-actions">
+          <button id="cBotRunOnce" type="button">Jalankan 1 siklus</button>
+          <button id="cBotToggle" type="button" class="primary buy">Mulai</button>
+        </div>
+      </div>
+      <form id="cBotForm" class="auto-form">
+        <label>Akun
+          <select name="broker">
+            <option value="paper">Simulasi (USDT)</option>
+            <option value="testnet">Binance Spot Testnet</option>
+            <option value="binance">Binance asli (uang sungguhan)</option>
+          </select>
+        </label>
+        <label class="wide-2">Pasangan yang dipantau (…USDT, pisahkan koma)<input name="symbols" placeholder="BTCUSDT, ETHUSDT"></label>
+        <label>Candle sinyal
+          <select name="candle_interval">
+            <option value="15m">15 mnt</option><option value="1h">1 jam</option><option value="4h">4 jam</option><option value="1d">Harian</option>
+          </select>
+        </label>
+        <label>Interval cek (detik)<input name="interval_seconds" type="number" min="30"></label>
+        <label>Ukuran posisi (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
+        <label>Maks. per order (USDT)<input name="max_order_usdt" type="number" step="1" min="0"></label>
+        <label>Maks. posisi bot<input name="max_positions" type="number" min="1"></label>
+        <label>Beli bila skor ≥<input name="min_buy_score" type="number" min="1"></label>
+        <label>Jual bila skor ≤<input name="max_sell_score" type="number" max="-1"></label>
+        <label>Stop-loss (%)<input name="stop_loss_pct" type="number" step="0.5" min="0"></label>
+        <label>Take-profit (%)<input name="take_profit_pct" type="number" step="0.5" min="0"></label>
+        <label>Cooldown (menit)<input name="cooldown_minutes" type="number" min="0"></label>
+        <div class="wide auto-save">
+          <button class="primary">Simpan pengaturan</button>
+          <span id="cBotMsg" class="msg"></span>
+        </div>
+      </form>
+      <p class="disclaimer">Bot hanya mengelola posisi yang dibukanya sendiri — saldo lain di akun Binance Anda tidak pernah ikut dijual.
+        Pasar crypto buka 24 jam. Di akun Binance asli bot butuh <code>ENABLE_LIVE_TRADING=true</code>, batas nilai per order, dan konfirmasi saat mulai.</p>
+      <h2>Posisi milik bot</h2>
+      <div class="table-wrap"><table id="cBotPositions"></table></div>
+      <h2>Log keputusan</h2>
+      <div class="table-wrap"><table id="cBotLog"></table></div>
+    </div>
+  </section>
+
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
   <script src="/static/app.js"></script>
@@ -369,5 +548,7 @@
   <script src="/static/notifications.js"></script>
   <script src="/static/fundamentals.js"></script>
   <script src="/static/webhook.js"></script>
+  <script src="/static/feed.js"></script>
+  <script src="/static/crypto.js"></script>
 </body>
 </html>

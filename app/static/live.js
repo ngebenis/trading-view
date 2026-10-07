@@ -58,7 +58,7 @@
   }
 
   function connect() {
-    if (document.body.dataset.market === "crypto") { close(); key = ""; return; } // tampilan crypto punya polling sendiri
+    if (document.body.dataset.market !== "idx") { close(); key = ""; return; } // tampilan crypto & saham AS punya polling sendiri
     if (document.hidden || !state.symbol) return;
     const syms = symbols();
     const k = `${syms.join(",")}|${state.symbol}`;

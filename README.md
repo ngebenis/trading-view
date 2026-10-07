@@ -540,6 +540,36 @@ Mulailah di Testnet. Bila `api.binance.com` tidak bisa diakses dari jaringan And
 diambil dari endpoint resmi khusus data `BINANCE_DATA_URL=https://data-api.binance.vision`. Pastikan
 juga layanan Binance boleh Anda gunakan di negara Anda.
 
+## 🇺🇸 Saham Amerika (Alpaca Markets)
+
+Pilih **Saham AS** di tombol pasar (samping judul). Data dan order memakai API resmi
+[Alpaca Markets](https://alpaca.markets) dengan API key milik Anda sendiri — aplikasi tidak pernah meminta password Alpaca.
+
+**Mulai dengan akun Paper** (uang simulasi di server Alpaca): buat akun di alpaca.markets, pindah ke *Paper Trading*,
+buat API key, lalu isi `.env`:
+
+```
+ALPACA_PAPER_API_KEY=...
+ALPACA_PAPER_API_SECRET=...
+```
+
+| Fitur | Keterangan |
+|---|---|
+| Harga & grafik | Harga terakhir, candle 1/5/15 menit, 1 jam, harian, EMA 12/26 & sinyal teknikal (kode seperti `AAPL`, `MSFT`, `BRK.B`) |
+| Feed data | `ALPACA_DATA_FEED=iex` (gratis, real-time, tetapi hanya transaksi bursa IEX — volume & harga bisa sedikit berbeda dari gabungan seluruh bursa) atau `sip` (berbayar, seluruh bursa AS) |
+| Order | Market / limit, beli / jual, jumlah dalam USD atau saham (*fractional shares* boleh); order disimpan di Alpaca, jadi riwayat & posisi sama dengan yang tampil di dashboard Alpaca |
+| Akun live | Uang sungguhan: isi `ALPACA_LIVE_API_KEY/SECRET`, set `ENABLE_LIVE_TRADING=true`, dan setiap order butuh konfirmasi. Nilai satu order dibatasi `US_MAX_ORDER_USD` (bawaan $1.000) |
+| Batas risiko | Order beli tidak boleh melebihi `US_MAX_POSITION_PCT` (bawaan 20%) dari ekuitas |
+| Telegram | Order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan) ikut dikirim bila *Order manual* aktif di tab Notifikasi |
+| Jam bursa | 09:30–16:00 waktu New York (Alpaca `/v2/clock`, termasuk hari libur; bila belum ada API key dipakai perkiraan lokal). Order market di luar jam bursa menunggu pembukaan |
+
+Belum tersedia untuk saham AS: auto-trading, alert harga & laporan portofolio Telegram (hanya saham IDX dan crypto).
+Mata uang & lot berbeda dari IDX: harga dalam USD, tanpa lot, ARA/ARB, atau fee (Alpaca tidak memungut komisi saham AS;
+biaya regulasi kecil pada penjualan tidak disimulasikan).
+
+> Dari lingkungan pengembangan ini Alpaca tidak bisa dijangkau, jadi fitur diuji dengan server Alpaca tiruan
+> (`tests/fake_alpaca.py`) yang mengikuti dokumentasi resmi. Coba dulu dengan akun Paper sebelum memakai akun live.
+
 ## ⚠️ Tentang eksekusi order di Stockbit / Pluang
 
 Stockbit dan Pluang **tidak menyediakan API trading publik resmi** untuk nasabah ritel.
@@ -577,6 +607,8 @@ app/
   binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
   crypto_api.py      Endpoint /api/crypto/*
+  alpaca.py          Klien API Alpaca, penyedia data & broker saham AS (paper / live)
+  us_api.py          Endpoint /api/us/*
   fundamentals.py    Parser laporan keuangan XBRL IDX & rasio fundamental
   fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
   brokers/
@@ -634,6 +666,11 @@ tests/               Unit & API test
 | POST | `/api/crypto/paper/reset` | Reset simulasi crypto |
 | GET/PUT | `/api/crypto/autotrader` · `/config` | Status & pengaturan bot crypto |
 | POST | `/api/crypto/autotrader/start` · `/stop` · `/run-once` | Kendalikan bot crypto |
+| GET | `/api/us/config` | Status akun Alpaca, feed data & jam bursa AS |
+| GET | `/api/us/quote/{kode}` · `/api/us/chart/{kode}?interval=5m` | Harga & candle saham AS |
+| GET | `/api/us/account?broker=paper` · `/api/us/orders` | Akun, posisi & riwayat order Alpaca |
+| POST | `/api/us/orders` | Kirim order (`quantity` atau `notional`; `confirm_live` untuk akun live) |
+| DELETE | `/api/us/orders/{id}?broker=` | Batalkan order OPEN |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) — hasil disimpan |
 | GET | `/api/backtests` · `/api/backtests/{id}` | Riwayat backtest / hasil lengkap satu backtest |
 | DELETE | `/api/backtests/{id}` | Hapus backtest dari riwayat |

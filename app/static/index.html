@@ -12,6 +12,7 @@
     <div id="marketSeg" class="seg-sm" role="group" aria-label="Pasar">
       <button type="button" data-market="idx">Saham IDX</button>
       <button type="button" data-market="crypto">Crypto</button>
+      <button type="button" data-market="us">Saham AS</button>
     </div>
     <form id="search" class="idx-only">
       <input id="symbolInput" placeholder="Kode saham / indeks, mis. BBCA, IHSG" autocomplete="off">
@@ -663,6 +664,89 @@
     </div>
   </section>
 
+
+  <!-- ================= Saham Amerika (Alpaca Markets) ================= -->
+  <main id="usMain" class="us-only hidden">
+    <aside class="panel" id="uWatchPanel">
+      <h2>Saham AS</h2>
+      <ul id="uWatch" class="watch"></ul>
+      <form id="uAddWatch"><input id="uAddWatchInput" placeholder="+ tambah, mis. NVDA" autocomplete="off"></form>
+      <p class="disclaimer">Harga dari Alpaca Markets (feed <b id="uFeed">iex</b>). Feed IEX gratis dan real-time, tetapi hanya memuat transaksi bursa IEX; feed SIP (berbayar) mencakup seluruh bursa AS.</p>
+    </aside>
+
+    <section class="center">
+      <div class="quote-bar">
+        <span id="uSymbol" class="q-symbol">—</span>
+        <span id="uPrice" class="q-price">—</span>
+        <span id="uChange" class="q-change"></span>
+        <span id="uStatus" class="live-status"></span>
+        <span class="links"><a id="uLnkTradingView" target="_blank" rel="noopener">TradingView ↗</a></span>
+      </div>
+      <div class="chart-toolbar">
+        <div class="chart-controls">
+          <select id="uInterval" aria-label="Interval candle">
+            <option value="1m">1 mnt</option><option value="5m" selected>5 mnt</option><option value="15m">15 mnt</option>
+            <option value="1h">1 jam</option><option value="1d">Harian</option>
+          </select>
+          <span id="uMarketState" class="muted"></span>
+        </div>
+      </div>
+      <div class="chart lw-wrap">
+        <div id="uLegend" class="chart-legend"></div>
+        <div id="uChartMsg" class="chart-msg"></div>
+        <div id="uChart" class="lw-chart"></div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>Sinyal Teknikal</h2>
+      <div id="uSignal" class="signal">—</div>
+      <ul id="uReasons" class="reasons"></ul>
+      <p class="disclaimer">Dihitung dari candle interval grafik. Bukan rekomendasi investasi.</p>
+
+      <h2>Order</h2>
+      <form id="uOrderForm" class="order-form" novalidate>
+        <label>Akun
+          <select id="uBroker"></select>
+        </label>
+        <div id="uBrokerNote" class="note hidden"></div>
+        <div class="seg">
+          <button type="button" data-side="BUY" class="buy active">Beli</button>
+          <button type="button" data-side="SELL" class="sell">Jual</button>
+        </div>
+        <label>Tipe
+          <select id="uOrderType"><option value="MARKET">Market</option><option value="LIMIT">Limit</option></select>
+        </label>
+        <label id="uLimitWrap" class="hidden">Harga limit (USD)
+          <input id="uLimitPrice" type="number" step="0.01" min="0">
+        </label>
+        <label><span>Jumlah dalam <select id="uAmountUnit" class="inline-select">
+            <option value="usd">USD</option><option value="shares">saham</option></select></span>
+          <input id="uAmount" type="number" step="any" min="0" value="500">
+          <small>Boleh pecahan (fractional shares).</small>
+        </label>
+        <div class="estimate" id="uEstimate"></div>
+        <button id="uSubmit" class="primary buy">Beli</button>
+        <div id="uOrderMsg" class="msg"></div>
+      </form>
+    </aside>
+  </main>
+
+  <section id="usBottom" class="bottom us-only hidden">
+    <div class="tabs">
+      <button class="utab active" data-utab="portfolio">Portofolio</button>
+      <button class="utab" data-utab="orders">Riwayat Order</button>
+      <button id="uOpenNotif" class="utab" type="button" title="Pengaturan Telegram ada di tab Notifikasi">Notifikasi Telegram</button>
+    </div>
+    <div id="uPortfolioPane">
+      <div id="uSummary" class="summary"></div>
+      <div class="table-wrap"><table id="uPortfolio"></table></div>
+    </div>
+    <div id="uOrdersPane" class="hidden">
+      <div class="table-wrap"><table id="uOrders"></table></div>
+    </div>
+  </section>
+
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
   <script src="/static/app.js"></script>
@@ -674,6 +758,7 @@
   <script src="/static/webhook.js"></script>
   <script src="/static/feed.js"></script>
   <script src="/static/crypto.js"></script>
+  <script src="/static/us.js"></script>
   <script src="/static/alerts.js"></script>
 </body>
 </html>

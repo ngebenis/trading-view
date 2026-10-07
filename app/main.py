@@ -26,6 +26,7 @@ from .idx_rules import (ARA_PCTS, ARB_PCTS, LOT_SIZE, is_index, limit_status, no
                         tradingview_symbol, tradingview_url)
 from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
 from .crypto_api import register_crypto
+from .us_api import register_us
 from .idx_vendors import build_provider
 from .market_data import MarketDataError
 from .daily_report import DailyReporter
@@ -57,7 +58,7 @@ class OrderRequest(BaseModel):
 
 
 def create_app(settings: Settings = default_settings, provider=None, telegram_http=None,
-               binance_http=None, vendor_http=None) -> FastAPI:
+               binance_http=None, vendor_http=None, alpaca_http=None) -> FastAPI:
     db = Database(settings.database_path or settings.data_dir / "app.db")
     db.migrate_json(settings.data_dir, settings.paper_starting_cash)  # sekali, dari versi berbasis JSON
     db.prune_logs(keep_days=180)
@@ -104,6 +105,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     app.state.feed = feed
     crypto = register_crypto(app, settings, db, watcher, binance_http)
     app.state.crypto = crypto
+    app.state.us = register_us(app, settings, watcher, alpaca_http)
     price_alerts = PriceAlertWatcher(provider, watcher, db, settings.price_alert_seconds)
     app.state.price_alerts = price_alerts
     reporter = DailyReporter(watcher, paper, provider, db, crypto)

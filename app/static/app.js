@@ -422,7 +422,7 @@ async function init() {
   $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
   refreshIhsgTicker();
   // Harga diperbarui lewat mode live (live.js); polling ini hanya cadangan bila koneksi live putus.
-  const idxVisible = () => document.body.dataset.market !== "crypto";
+  const idxVisible = () => !["crypto", "us"].includes(document.body.dataset.market);
   setInterval(() => {
     if (!idxVisible()) return;
     if (!window.liveConnected?.()) { refreshWatchPrices(); refreshIhsgTicker(); }

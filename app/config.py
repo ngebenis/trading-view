@@ -63,6 +63,18 @@ class Settings:
     crypto_paper_starting_cash: float = float(os.getenv("CRYPTO_PAPER_STARTING_USDT", "10000"))
     crypto_fee_pct: float = float(os.getenv("CRYPTO_FEE_PCT", "0.1"))
     crypto_max_position_pct: float = float(os.getenv("CRYPTO_MAX_POSITION_PCT", "20"))
+    # ---- saham Amerika (Alpaca Markets) ----
+    # Feed data: "iex" (gratis, real-time tetapi hanya volume bursa IEX) atau "sip" (berbayar, seluruh bursa AS).
+    alpaca_data_url: str = os.getenv("ALPACA_DATA_URL", "https://data.alpaca.markets")
+    alpaca_data_feed: str = os.getenv("ALPACA_DATA_FEED", "iex")
+    alpaca_paper_url: str = os.getenv("ALPACA_PAPER_URL", "https://paper-api.alpaca.markets")
+    alpaca_paper_api_key: str = os.getenv("ALPACA_PAPER_API_KEY", "")
+    alpaca_paper_api_secret: str = os.getenv("ALPACA_PAPER_API_SECRET", "")
+    alpaca_live_url: str = os.getenv("ALPACA_LIVE_URL", "https://api.alpaca.markets")
+    alpaca_live_api_key: str = os.getenv("ALPACA_LIVE_API_KEY", "")
+    alpaca_live_api_secret: str = os.getenv("ALPACA_LIVE_API_SECRET", "")
+    us_max_position_pct: float = float(os.getenv("US_MAX_POSITION_PCT", "20"))
+    us_max_order_usd: float = float(os.getenv("US_MAX_ORDER_USD", "1000"))  # batas nilai satu order di akun live
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
     # Database SQLite; kosong = <DATA_DIR>/app.db
     database_path: str = os.getenv("DATABASE_PATH", "")

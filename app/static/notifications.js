@@ -21,6 +21,10 @@
     f.elements.market_hours_only.checked = c.market_hours_only;
     f.elements.notify_trades.checked = c.notify_trades;
     f.elements.notify_orders.checked = c.notify_orders;
+    f.elements.report_enabled.checked = c.report_enabled;
+    f.elements.report_time.value = c.report_time;
+    f.elements.report_weekdays_only.checked = c.report_weekdays_only;
+    f.elements.report_crypto.checked = c.report_crypto;
     f.elements.bot_token.disabled = st.token_from_env;
     f.elements.chat_id.disabled = st.chat_id_from_env;
     $("#tokenHint").textContent = st.token_from_env ? "Diatur lewat TELEGRAM_BOT_TOKEN di .env" : "Disimpan lokal di database data/app.db";
@@ -43,10 +47,12 @@
     $("#notifStatus").textContent = !st.configured ? "Belum tersambung ke Telegram — lihat panduan di bawah"
       : (st.running ? "● Memantau" : "○ Berhenti") + ` · ${st.config.symbols.length} saham · ${st.config.crypto_symbols.length} crypto` +
         ` · pindaian terakhir ${time(st.last_run)}` +
-        (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "");
+        (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "") +
+        (st.report_schedule ? ` · laporan harian ${st.report_schedule}` : "");
+    $("#notifReportSend").disabled = !st.configured;
 
     const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL",
-                     MOVE: "GERAK 24J", TARGET: "TARGET", ORDER: "ORDER" };
+                     MOVE: "GERAK 24J", TARGET: "TARGET", ORDER: "ORDER", REPORT: "LAPORAN" };
     $("#notifLog").innerHTML = `<tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Keterangan</th><th>Telegram</th></tr>` +
       (st.history.length ? st.history.map((h) => `<tr><td>${new Date(h.time * 1000).toLocaleString("id-ID")}</td>
         <td class="kind kind-${h.kind}">${labels[h.kind] || h.kind}</td><td>${escapeHtml(h.symbol)}</td>
@@ -72,6 +78,10 @@
       market_hours_only: f.elements.market_hours_only.checked,
       notify_trades: f.elements.notify_trades.checked,
       notify_orders: f.elements.notify_orders.checked,
+      report_enabled: f.elements.report_enabled.checked,
+      report_time: f.elements.report_time.value || "16:15",
+      report_weekdays_only: f.elements.report_weekdays_only.checked,
+      report_crypto: f.elements.report_crypto.checked,
     };
     if (!f.elements.bot_token.disabled) body.bot_token = f.elements.bot_token.value;
     if (!f.elements.chat_id.disabled) body.chat_id = f.elements.chat_id.value;
@@ -115,6 +125,16 @@
     $("#notifUseWatchlist").onclick = () => { $("#notifForm").elements.symbols.value = state.watchlist.join(", "); };
     $("#notifUseCryptoWatch").onclick = () => { $("#notifForm").elements.crypto_symbols.value = (window.cryptoWatchlist?.() || []).join(", "); };
     $("#notifTest").onclick = () => action("test", () => "Pesan uji terkirim — cek Telegram Anda");
+    $("#notifReportSend").onclick = () => action("report", () => "Laporan portofolio terkirim — cek Telegram Anda");
+    $("#notifReportPreview").onclick = async () => {
+      const box = $("#reportPreview");
+      if (!box.classList.contains("hidden")) { box.classList.add("hidden"); return; }
+      try {
+        // Isi dari server sudah di-escape; hanya tag format Telegram (<b>, <i>, <a>) yang tersisa.
+        box.innerHTML = (await api("/api/notifications/report/preview")).text;
+        box.classList.remove("hidden");
+      } catch (e) { msg(e.message, false); }
+    };
     $("#notifRunOnce").onclick = () => action("run-once", (st) => {
       const sent = st.history.filter((h) => h.time >= st.last_run && h.sent).length;
       return sent ? `${sent} notifikasi sinyal terkirim` : "Pemindaian selesai, tidak ada sinyal baru";

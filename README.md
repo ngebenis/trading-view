@@ -336,6 +336,24 @@ Posisi: 10 lot · avg 9.050
 ```
 - Opsi "Hanya saat jam bursa" melewati pemindaian **saham** di luar jam perdagangan IDX.
 
+**📊 Laporan harian portofolio.** Centang *Kirim laporan harian* di tab Notifikasi dan pilih jamnya (bawaan
+16:15 WIB, setelah bursa tutup; opsi hanya Senin–Jumat). Laporan berisi ekuitas akun simulasi saham beserta
+perubahannya sejak laporan kemarin, kas, total P/L, tiap posisi (harga, perubahan hari ini, P/L), transaksi hari ini
+dan IHSG — ditambah ringkasan akun crypto bila dipakai. Dikirim sekali per hari (bila server baru menyala setelah
+jamnya, tetap dikirim hari itu). Ada tombol **Lihat contoh** dan **Kirim laporan sekarang**.
+
+```
+📊 Laporan portofolio — Rabu, 07/10/2026 16:15 WIB
+📈 Saham IDX — akun simulasi
+Ekuitas: Rp101.250.000 (+Rp150.000 / +0,15% sejak laporan kemarin)
+Kas: Rp92.200.000 · Nilai saham: Rp9.050.000
+Total P/L: +Rp1.250.000 (+1,25%)
+Posisi (1) · pergerakan hari ini +Rp50.000:
+• BBCA 10 lot · 9.050 (+0,56%) · P/L +Rp50.000 (+0,56%)
+Transaksi hari ini: 1 beli, 0 jual · nilai Rp9.000.000
+IHSG: 7.123,45 (+0,33%)
+```
+
 **🎯 Alert harga (target).** Di panel order (saham maupun crypto) isi *Target harga* lalu klik **Pasang**.
 Arah ditentukan otomatis dari harga sekarang: target di atas harga → dikabarkan saat **naik tembus**, di bawah →
 saat **turun tembus**. Harga dicek tiap `PRICE_ALERT_SECONDS` (bawaan 30 detik) — terpisah dari pemindaian sinyal
@@ -482,6 +500,7 @@ app/
   webhooks.py        Penerima webhook alert TradingView
   idx_vendors.py     Penyedia data IDX berbayar (Invezgo, GoAPI) + cadangan otomatis
   price_alerts.py    Alert harga (target) ke Telegram untuk saham & crypto
+  daily_report.py    Laporan harian portofolio ke Telegram
   price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
   binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
@@ -526,6 +545,8 @@ tests/               Unit & API test
 | GET | `/api/webhooks` | Status, template pesan & log alert |
 | PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
+| POST | `/api/notifications/report` | Kirim laporan harian portofolio sekarang |
+| GET | `/api/notifications/report/preview` | Contoh isi laporan (HTML Telegram) |
 | GET/POST | `/api/alerts` | Daftar / pasang alert harga (`symbol`, `target`, `note`, `repeat`) |
 | DELETE | `/api/alerts/{id}` | Hapus alert |
 | POST | `/api/alerts/{id}/rearm` · `/api/alerts/check` | Aktifkan lagi alert / periksa sekarang |

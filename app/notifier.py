@@ -203,6 +203,11 @@ class WatchConfig:
     market_hours_only: bool = False
     notify_trades: bool = True  # kirim juga transaksi bot auto-trading
     notify_orders: bool = True  # kirim order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan)
+    # Laporan harian portofolio (akun simulasi saham & crypto) pada jam tertentu (WIB).
+    report_enabled: bool = False
+    report_time: str = "16:15"
+    report_weekdays_only: bool = True
+    report_crypto: bool = True
     notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
     # Crypto (Binance): pasar 24 jam, jadi tidak terpengaruh "hanya saat jam bursa".
     crypto_symbols: list[str] = field(default_factory=list)
@@ -225,6 +230,13 @@ class WatchConfig:
             errors.append(f"Candle crypto harus salah satu dari {', '.join(KLINE_INTERVALS)}")
         if not 0 <= self.crypto_move_pct <= 100:
             errors.append("Ambang gerakan crypto harus 0–100%")
+        try:
+            hh, mm = (int(x) for x in str(self.report_time).split(":"))
+            if not (0 <= hh < 24 and 0 <= mm < 60):
+                raise ValueError
+            self.report_time = f"{hh:02d}:{mm:02d}"
+        except ValueError:
+            errors.append("Jam laporan harian harus berformat JJ:MM (mis. 16:15)")
         if self.interval_seconds < 60:
             errors.append("Interval minimal 60 detik")
         if self.min_buy_score < 1 or self.max_sell_score > -1:
@@ -242,6 +254,7 @@ class SignalWatcher:
                  http: httpx.Client | None = None, clock=time.time):
         self.provider = provider
         self.crypto_provider = None  # BinanceProvider, dipasang oleh register_crypto
+        self.reporter = None  # DailyReporter, dipasang oleh create_app
         self.db = db  # app.db.Database atau None
         self.env_token, self.env_chat_id = env_token, env_chat_id
         self.http = http
@@ -496,4 +509,6 @@ class SignalWatcher:
             "configured": bool(self.token and self.chat_id),
             "token_from_env": bool(self.env_token), "chat_id_from_env": bool(self.env_chat_id),
             "last_action": self.last_action, "history": list(self.history)[:100],
+            "report_schedule": self.reporter.next_run() if self.reporter else None,
+            "report_last_sent": self.reporter.last_sent if self.reporter else None,
         }

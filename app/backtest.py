@@ -75,7 +75,9 @@ class _ReplayProvider:
             raise MarketDataError("tidak ada perdagangan hari ini")  # suspensi / libur
         c = self.history[symbol][i]
         price = c.open if self.execution == "next_open" else c.close
-        return Quote(symbol, price, price, 0, 0, source=self.name)
+        # Harga acuan ARA/ARB = penutupan hari bursa sebelumnya.
+        prev = self.history[symbol][i - 1].close if i > 0 else price
+        return Quote(symbol, price, prev, price - prev, (price / prev - 1) * 100 if prev else 0.0, source=self.name)
 
     def close_on(self, symbol: str, day: str) -> float | None:
         i = self._index(symbol, day)

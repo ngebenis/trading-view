@@ -35,6 +35,12 @@ class Settings:
     usd_idr_rate: float = float(os.getenv("USD_IDR_RATE", "16000"))
     # Bila true, request lewat tunnel/proxy hanya boleh ke endpoint webhook (lihat README).
     local_only_guard: bool = os.getenv("LOCAL_ONLY_GUARD", "true").lower() != "false"
+    # Mode live: seberapa sering harga diambil ulang (detik). Jangan terlalu kecil agar tidak
+    # kena batas permintaan sumber data (Yahoo).
+    live_focus_seconds: float = float(os.getenv("LIVE_FOCUS_SECONDS", "10"))   # saham yang sedang dibuka
+    live_watch_seconds: float = float(os.getenv("LIVE_WATCH_SECONDS", "30"))   # watchlist & IHSG
+    # Umur maksimum satu koneksi stream; browser (EventSource) otomatis menyambung ulang.
+    live_stream_max_seconds: float = float(os.getenv("LIVE_STREAM_MAX_SECONDS", "1800"))
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
     # Database SQLite; kosong = <DATA_DIR>/app.db
     database_path: str = os.getenv("DATABASE_PATH", "")

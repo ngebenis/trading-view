@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta, timezone
 
 from .brokers import BrokerError, Order, OrderType, PaperBroker, Side
-from .idx_rules import LOT_SIZE, normalize_symbol, reject_indices, round_to_tick
+from .idx_rules import LOT_SIZE, normalize_symbol, price_limits, reject_indices, round_to_tick
 from .market_data import MarketDataError
 from .strategy import analyze
 
@@ -153,10 +153,11 @@ class AutoTrader:
         last = self.last_trade_at.get(symbol)
         return last is not None and now - last < self.config.cooldown_minutes * 60
 
-    def _submit(self, symbol: str, side: Side, lots: int, price: float, reason: str, now: float) -> None:
+    def _submit(self, symbol: str, side: Side, lots: int, price: float, reason: str, now: float,
+                limits: tuple[int, int] | None = None) -> None:
         order = Order(symbol, side, lots, OrderType.MARKET, source="auto", created_at=now)
         try:
-            self.broker.place_order(order, price)
+            self.broker.place_order(order, price, limits)
         except BrokerError as exc:
             self._log("WARN", symbol, f"Order {side.value} ditolak: {exc}")
             return
@@ -181,10 +182,12 @@ class AutoTrader:
 
             held = set(self.broker.positions)
             universe = sorted(set(cfg.symbols) | held)
-            prices, signals = {}, {}
+            prices, signals, limits = {}, {}, {}
             for sym in universe:
                 try:
-                    prices[sym] = self.provider.quote(sym).price
+                    quote = self.provider.quote(sym)
+                    prices[sym] = quote.price
+                    limits[sym] = price_limits(quote.prev_close)  # (ARB, ARA) hari ini
                     closes = [c.close for c in self.provider.candles(sym, "1y", "1d")]
                     signals[sym] = analyze(closes)
                 except MarketDataError as exc:
@@ -205,11 +208,11 @@ class AutoTrader:
                 change = (price - avg) / avg * 100
                 sig = signals.get(sym)
                 if cfg.stop_loss_pct and change <= -cfg.stop_loss_pct:
-                    self._submit(sym, Side.SELL, lots, price, f"stop-loss ({change:.1f}%)", now)
+                    self._submit(sym, Side.SELL, lots, price, f"stop-loss ({change:.1f}%)", now, limits.get(sym))
                 elif cfg.take_profit_pct and change >= cfg.take_profit_pct:
-                    self._submit(sym, Side.SELL, lots, price, f"take-profit (+{change:.1f}%)", now)
+                    self._submit(sym, Side.SELL, lots, price, f"take-profit (+{change:.1f}%)", now, limits.get(sym))
                 elif sig and sig["score"] <= cfg.max_sell_score and not self._in_cooldown(sym, now):
-                    self._submit(sym, Side.SELL, lots, price, f"sinyal JUAL skor {sig['score']}", now)
+                    self._submit(sym, Side.SELL, lots, price, f"sinyal JUAL skor {sig['score']}", now, limits.get(sym))
 
             # 2) Buka posisi baru.
             for sym in cfg.symbols:
@@ -232,7 +235,7 @@ class AutoTrader:
                 if lots < 1:
                     self._log("SKIP", sym, f"Sinyal BELI diabaikan: dana tidak cukup untuk 1 lot (Rp{rupiah(unit_cost)})")
                     continue
-                self._submit(sym, Side.BUY, lots, price, f"sinyal BELI skor {sig['score']}", now)
+                self._submit(sym, Side.BUY, lots, price, f"sinyal BELI skor {sig['score']}", now, limits.get(sym))
 
             if not created():
                 self._log("INFO", "-", f"Tidak ada aksi ({len(signals)} simbol dipindai)")

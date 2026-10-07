@@ -59,20 +59,18 @@ async function loadSymbol(symbol) {
   $("#lnkStockbit").href = `https://stockbit.com/symbol/${symbol}`;
   $("#lnkTradingView").href = `https://www.tradingview.com/symbols/${tvSymbol(symbol).replace(":", "-")}/`;
   refreshOrderTicket();
+  window.liveResubscribe?.();
   if (!$("#fundPane").classList.contains("hidden")) window.loadFundamentals?.();
   renderWatchlist();
   (window.renderPriceChart || renderChart)(symbol);
   $("#signal").textContent = "…"; $("#signal").className = "signal"; $("#reasons").innerHTML = "";
+  state.quote = null;
+  $("#qLimits").innerHTML = "";
   try {
     const q = await api(`/api/quote/${symbol}`);
-    state.price = q.price;
-    $("#qPrice").textContent = fmtPrice(q.price, symbol);
-    $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmtPrice(q.change, symbol)} (${fmt(q.change_pct, 2)}%)`;
-    $("#qChange").className = "q-change " + cls(q.change);
-    if (!$("#limitPrice").value || $("#limitPrice").dataset.symbol !== symbol) {
-      $("#limitPrice").value = q.price; $("#limitPrice").dataset.symbol = symbol;
-    }
-    updateEstimate();
+    if (symbol !== state.symbol) return; // pengguna sudah pindah saham
+    renderQuote(q);
+    window.liveStatus?.(q);
   } catch (e) {
     state.price = null;
     $("#qPrice").textContent = "—"; $("#qChange").textContent = e.message; $("#qChange").className = "q-change down";
@@ -88,7 +86,10 @@ async function loadSymbol(symbol) {
 }
 
 // ---------- watchlist ----------
-function saveWatchlist() { localStorage.setItem("watchlist", JSON.stringify(state.watchlist)); }
+function saveWatchlist() {
+  localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
+  window.liveResubscribe?.();
+}
 
 function renderWatchlist() {
   const ul = $("#watchlist");
@@ -112,9 +113,7 @@ async function refreshWatchPrices() {
     const el = document.querySelector(`.wl-price[data-s="${s}"]`);
     if (!el) return;
     try {
-      const q = await api(`/api/quote/${s}`);
-      el.textContent = `${fmtPrice(q.price, s)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
-      el.className = "wl-price " + cls(q.change_pct);
+      renderWatchQuote(s, await api(`/api/quote/${s}`));
     } catch { el.textContent = "n/a"; }
   }));
 }
@@ -122,8 +121,7 @@ async function refreshWatchPrices() {
 async function refreshIhsgTicker() {
   const el = $("#ihsgTicker");
   try {
-    const q = await api("/api/quote/IHSG");
-    el.innerHTML = `IHSG <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
+    renderIhsg(await api("/api/quote/IHSG"));
   } catch { el.innerHTML = "IHSG <b>n/a</b>"; }
 }
 
@@ -137,6 +135,60 @@ function setSide(side) {
   updateEstimate();
 }
 
+// Bar harga saham yang sedang dibuka (dipakai saat memuat & setiap pembaruan live).
+function renderQuote(q, live = false) {
+  const prev = state.quote && state.quote.symbol === q.symbol ? state.quote.price : null;
+  state.price = q.price;
+  state.quote = q;
+  renderLimits(q);
+  window.refreshLimitLines?.();
+  $("#qPrice").textContent = fmtPrice(q.price, q.symbol);
+  $("#qChange").textContent = `${q.change >= 0 ? "+" : ""}${fmtPrice(q.change, q.symbol)} (${fmt(q.change_pct, 2)}%)`;
+  $("#qChange").className = "q-change " + cls(q.change);
+  if (live && prev != null && prev !== q.price) { // kedipkan harga saat berubah
+    const el = $("#qPrice");
+    el.classList.remove("flash-up", "flash-down");
+    void el.offsetWidth;
+    el.classList.add(q.price > prev ? "flash-up" : "flash-down");
+  }
+  if (!$("#limitPrice").value || $("#limitPrice").dataset.symbol !== q.symbol) {
+    $("#limitPrice").value = q.price; $("#limitPrice").dataset.symbol = q.symbol;
+  }
+  updateEstimate();
+}
+
+function renderWatchQuote(s, q) {
+  const el = document.querySelector(`.wl-price[data-s="${s}"]`);
+  if (!el) return;
+  el.innerHTML = `${limitBadge(q.limit_status)}${fmtPrice(q.price, s)} ${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 1)}%`;
+  el.className = "wl-price " + cls(q.change_pct);
+}
+
+function renderIhsg(q) {
+  $("#ihsgTicker").innerHTML = `IHSG <b>${fmtPrice(q.price, "IHSG")}</b> <span class="${cls(q.change_pct)}">${q.change_pct >= 0 ? "+" : ""}${fmt(q.change_pct, 2)}%</span>`;
+}
+
+// Batas Auto Rejection hari ini (dihitung server dari harga penutupan sebelumnya).
+function limitBadge(status) {
+  return status ? `<span class="limit-badge ${status === "ARA" ? "ara" : "arb"}">${status}</span>` : "";
+}
+
+function renderLimits(q) {
+  if (q.ara == null) { $("#qLimits").innerHTML = ""; return; }
+  $("#qLimits").innerHTML = `${limitBadge(q.limit_status)}<span class="muted" title="Batas Auto Rejection hari ini dari harga acuan ${fmt(q.reference_price)}">
+    ARB <b>${fmt(q.arb)}</b> · ARA <b>${fmt(q.ara)}</b></span>`;
+}
+
+function limitWarning(price, isLimit) {
+  const q = state.quote;
+  if (!q || q.ara == null || !price) return "";
+  if (isLimit && price > q.ara) return `⚠ Di atas batas ARA (${fmt(q.ara)}) — akan ditolak bursa`;
+  if (isLimit && price < q.arb) return `⚠ Di bawah batas ARB (${fmt(q.arb)}) — akan ditolak bursa`;
+  if (!isLimit && state.side === "BUY" && q.limit_status === "ARA") return "⚠ Saham sedang ARA: tidak ada penjual, order beli market akan ditolak";
+  if (!isLimit && state.side === "SELL" && q.limit_status === "ARB") return "⚠ Saham sedang ARB: tidak ada pembeli, order jual market akan ditolak";
+  return "";
+}
+
 function updateEstimate() {
   const isLimit = $("#orderType").value === "LIMIT";
   $("#limitWrap").classList.toggle("hidden", !isLimit);
@@ -147,11 +199,13 @@ function updateEstimate() {
     $("#tickHint").textContent = price % t === 0 ? `Fraksi harga: ${t}` : `⚠ Harus kelipatan ${t} (mis. ${Math.round(price / t) * t})`;
   }
   if (!price || !lots || isIndex(state.symbol)) { $("#estimate").textContent = ""; return; }
+  const warn = limitWarning(price, isLimit);
   const value = price * lots * (state.config.lot_size || 100);
   const feePct = state.side === "BUY" ? state.config.buy_fee_pct : state.config.sell_fee_pct;
   const fee = value * (feePct || 0) / 100;
   $("#estimate").innerHTML = `Nilai: <b>${rp(value)}</b><br>Fee ±${fmt(feePct, 2)}%: ${rp(fee)}<br>` +
-    (state.side === "BUY" ? `Total bayar: <b>${rp(value + fee)}</b>` : `Diterima: <b>${rp(value - fee)}</b>`);
+    (state.side === "BUY" ? `Total bayar: <b>${rp(value + fee)}</b>` : `Diterima: <b>${rp(value - fee)}</b>`) +
+    (warn ? `<div class="limit-warn">${warn}</div>` : "");
 }
 
 async function submitOrder(ev) {
@@ -347,7 +401,11 @@ async function init() {
   loadSymbol(state.symbol);
   $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
   refreshIhsgTicker();
-  setInterval(() => { refreshWatchPrices(); refreshIhsgTicker(); loadAccount(); window.refreshPriceChart?.(); }, 60_000);
+  // Harga diperbarui lewat mode live (live.js); polling ini hanya cadangan bila koneksi live putus.
+  setInterval(() => {
+    if (!window.liveConnected?.()) { refreshWatchPrices(); refreshIhsgTicker(); }
+    loadAccount(); window.refreshPriceChart?.();
+  }, 60_000);
   setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
 }
 

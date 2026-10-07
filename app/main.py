@@ -28,6 +28,7 @@ from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, 
 from .crypto_api import register_crypto
 from .idx_vendors import build_provider
 from .market_data import MarketDataError
+from .daily_report import DailyReporter
 from .price_alerts import AlertError, PriceAlertWatcher
 from .price_feed import FeedError, FeedProvider, PriceFeed, pine_script
 from .notifier import NotifierError, SignalWatcher
@@ -86,6 +87,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         if crypto["bot"].config.enabled and crypto["bot"].target.available():
             crypto["bot"].start()
         price_alerts.start()
+        reporter.start()
         yield
         if autotrader.running:
             autotrader._stop.set()
@@ -93,6 +95,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
             crypto["bot"]._stop.set()
         watcher.shutdown()
         price_alerts.shutdown()
+        reporter.shutdown()
 
     app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
     app.state.autotrader = autotrader
@@ -103,6 +106,9 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     app.state.crypto = crypto
     price_alerts = PriceAlertWatcher(provider, watcher, db, settings.price_alert_seconds)
     app.state.price_alerts = price_alerts
+    reporter = DailyReporter(watcher, paper, provider, db, crypto)
+    watcher.reporter = reporter  # jadwal laporan ikut tampil di status notifikasi
+    app.state.reporter = reporter
     app.state.db = db
 
     # Pengaman tunnel: request yang lewat proxy/tunnel (ngrok, Cloudflare Tunnel, dll) membawa header
@@ -381,6 +387,19 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     @app.post("/api/notifications/stop")
     def notifications_stop():
         return notifier_call(watcher.stop)
+
+    @app.post("/api/notifications/report")
+    def notifications_report():
+        if not watcher.status()["configured"]:
+            raise HTTPException(400, "Isi bot token dan chat ID Telegram terlebih dahulu")
+        entry = reporter.send_now()
+        if entry["kind"] == "ERROR":
+            raise HTTPException(502, entry["message"])
+        return watcher.status()
+
+    @app.get("/api/notifications/report/preview")
+    def notifications_report_preview():
+        return {"text": reporter.build(save=False)}
 
     @app.post("/api/notifications/run-once")
     def notifications_run_once():

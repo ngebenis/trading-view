@@ -63,7 +63,13 @@ class Settings:
     crypto_paper_starting_cash: float = float(os.getenv("CRYPTO_PAPER_STARTING_USDT", "10000"))
     crypto_fee_pct: float = float(os.getenv("CRYPTO_FEE_PCT", "0.1"))
     crypto_max_position_pct: float = float(os.getenv("CRYPTO_MAX_POSITION_PCT", "20"))
-    # ---- saham Amerika (Alpaca Markets) ----
+    # ---- saham Amerika ----
+    # Sumber data: finnhub / alpaca / auto (Finnhub bila FINNHUB_API_KEY diisi, selain itu Alpaca).
+    us_data_provider: str = os.getenv("US_DATA_PROVIDER", "auto")
+    finnhub_api_key: str = os.getenv("FINNHUB_API_KEY", "")
+    finnhub_base_url: str = os.getenv("FINNHUB_BASE_URL", "https://finnhub.io/api/v1")
+    us_paper_starting_cash: float = float(os.getenv("US_PAPER_STARTING_USD", "100000"))
+    # Alpaca Markets (opsional: data dan/atau order lewat akun Alpaca Anda sendiri)
     # Feed data: "iex" (gratis, real-time tetapi hanya volume bursa IEX) atau "sip" (berbayar, seluruh bursa AS).
     alpaca_data_url: str = os.getenv("ALPACA_DATA_URL", "https://data.alpaca.markets")
     alpaca_data_feed: str = os.getenv("ALPACA_DATA_FEED", "iex")

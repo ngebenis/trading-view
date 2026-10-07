@@ -5,6 +5,8 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from .finnhub import FinnhubAPI, FinnhubProvider
+from .us_paper import UsPaperBroker
 from .alpaca import (INTERVALS, AlpacaAPI, AlpacaBroker, AlpacaProvider, UsOrder, normalize_us, us_market_open)
 from .brokers.base import BrokerError, BrokerNotAvailable, OrderStatus, OrderType, Side
 from .config import Settings
@@ -14,7 +16,7 @@ from .strategy import analyze
 
 
 class UsOrderRequest(BaseModel):
-    broker: str = "paper"
+    broker: str | None = None  # kosong = akun bawaan (Alpaca Paper bila diatur, selain itu simulasi lokal)
     symbol: str
     side: Side
     quantity: float | None = Field(None, gt=0)   # jumlah saham (boleh pecahan)
@@ -25,29 +27,37 @@ class UsOrderRequest(BaseModel):
     confirm_live: bool = False
 
 
-def register_us(app: FastAPI, settings: Settings, watcher=None, http=None) -> dict:
+def register_us(app: FastAPI, settings: Settings, db, watcher=None, http=None, finnhub_http=None) -> dict:
     paper = AlpacaBroker(AlpacaAPI(settings.alpaca_paper_url, settings.alpaca_paper_api_key,
                                    settings.alpaca_paper_api_secret, client=http), live=False)
     live = AlpacaBroker(AlpacaAPI(settings.alpaca_live_url, settings.alpaca_live_api_key,
                                   settings.alpaca_live_api_secret, client=http), live=True)
-    brokers = {"paper": paper, "live": live}
-    # Data pasar memakai API key akun yang tersedia (paper dulu); endpoint datanya sama untuk keduanya.
+    # Data pasar: Finnhub (bila API key ada) atau Alpaca; endpoint data Alpaca memakai key akun yang tersedia.
     key = next(((b.api.key, b.api.secret) for b in (paper, live) if b.available()), ("", ""))
-    provider = AlpacaProvider(AlpacaAPI(settings.alpaca_data_url, *key, client=http), settings.alpaca_data_feed)
+    alpaca_data = AlpacaProvider(AlpacaAPI(settings.alpaca_data_url, *key, client=http), settings.alpaca_data_feed)
+    finnhub = FinnhubProvider(FinnhubAPI(settings.finnhub_base_url, settings.finnhub_api_key, client=finnhub_http),
+                              yahoo_client=finnhub_http)
+    choice = settings.us_data_provider
+    use_finnhub = choice == "finnhub" or (choice == "auto" and finnhub.api.configured)
+    provider = finnhub if use_finnhub else alpaca_data
+    sim = UsPaperBroker(db, provider, settings.us_paper_starting_cash)
+    brokers = {"sim": sim, "paper": paper, "live": live}
+    default_broker = "paper" if paper.available() else "sim"
 
     if watcher is not None:
         watcher.us_provider = provider  # alert harga saham AS di Telegram
 
-    def notify_order(b: AlpacaBroker, order: UsOrder, event: str) -> None:
+    def notify_order(b, order: UsOrder, event: str) -> None:
         if watcher is not None:
             watcher.notify_order(order.to_dict(), event, "us", b.display_name)
 
     for _b in brokers.values():
         _b.on_fill.append(lambda o, b=_b: notify_order(b, o, "filled"))
 
-    def get_broker(name: str) -> AlpacaBroker:
+    def get_broker(name: str | None):
+        name = name or default_broker
         if name not in brokers:
-            raise HTTPException(404, f"Akun '{name}' tidak dikenal (paper / live)")
+            raise HTTPException(404, f"Akun '{name}' tidak dikenal (sim / paper / live)")
         return brokers[name]
 
     def market(fn):
@@ -72,13 +82,16 @@ def register_us(app: FastAPI, settings: Settings, watcher=None, http=None) -> di
 
     @app.get("/api/us/config")
     def us_config():
-        clock = next((c for c in (b.market_clock() for b in brokers.values()) if c), None)
-        return {"brokers": {k: b.status() for k, b in brokers.items()}, "intervals": list(INTERVALS),
-                "live_trading_enabled": settings.enable_live_trading, "data_feed": settings.alpaca_data_feed,
+        clocks = [("finnhub", getattr(provider, "market_clock", lambda: None)())] + \
+                 [("alpaca", b.market_clock()) for b in (paper, live)]
+        source, clock = next(((n, c) for n, c in clocks if c), (None, None))
+        return {"brokers": {k: b.status() for k, b in brokers.items()}, "default_broker": default_broker,
+                "intervals": list(INTERVALS), "live_trading_enabled": settings.enable_live_trading,
+                "data_source": provider.name, "data_feed": settings.alpaca_data_feed if provider.name == "alpaca" else "",
                 "data_configured": provider.api.configured, "max_position_pct": settings.us_max_position_pct,
                 "max_live_order_usd": settings.us_max_order_usd,
                 "market_open": clock["is_open"] if clock else us_market_open(),
-                "market_clock_source": "alpaca" if clock else "perkiraan lokal (tanpa hari libur)",
+                "market_clock_source": source or "perkiraan lokal (tanpa hari libur)",
                 "next_open": clock["next_open"] if clock else None,
                 "next_close": clock["next_close"] if clock else None}
 
@@ -108,11 +121,11 @@ def register_us(app: FastAPI, settings: Settings, watcher=None, http=None) -> di
                 "ema12": line(ema(closes, 12)), "ema26": line(ema(closes, 26)), "analysis": analyze(closes)}
 
     @app.get("/api/us/account")
-    def us_account(broker: str = "paper"):
+    def us_account(broker: str | None = None):
         return trading(get_broker(broker).account)
 
     @app.get("/api/us/orders")
-    def us_orders(broker: str = "paper", limit: int = Query(100, ge=1, le=500)):
+    def us_orders(broker: str | None = None, limit: int = Query(100, ge=1, le=500)):
         return [o.to_dict() for o in trading(lambda: get_broker(broker).orders(limit))]
 
     @app.post("/api/us/orders")
@@ -156,7 +169,7 @@ def register_us(app: FastAPI, settings: Settings, watcher=None, http=None) -> di
         return order.to_dict()
 
     @app.delete("/api/us/orders/{order_id}")
-    def us_cancel(order_id: str, broker: str = "paper"):
+    def us_cancel(order_id: str, broker: str | None = None):
         b = get_broker(broker)
         try:
             order = b.cancel_order(order_id)
@@ -166,5 +179,10 @@ def register_us(app: FastAPI, settings: Settings, watcher=None, http=None) -> di
             raise HTTPException(400, str(exc))
         notify_order(b, order, "cancelled")
         return order.to_dict()
+
+    @app.post("/api/us/paper/reset")
+    def us_reset():
+        sim.reset()
+        return sim.account()
 
     return {"provider": provider, "brokers": brokers}

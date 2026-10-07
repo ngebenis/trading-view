@@ -540,13 +540,24 @@ Mulailah di Testnet. Bila `api.binance.com` tidak bisa diakses dari jaringan And
 diambil dari endpoint resmi khusus data `BINANCE_DATA_URL=https://data-api.binance.vision`. Pastikan
 juga layanan Binance boleh Anda gunakan di negara Anda.
 
-## 🇺🇸 Saham Amerika (Alpaca Markets)
+## 🇺🇸 Saham Amerika (Finnhub / Alpaca)
 
-Pilih **Saham AS** di tombol pasar (samping judul). Data dan order memakai API resmi
-[Alpaca Markets](https://alpaca.markets) dengan API key milik Anda sendiri — aplikasi tidak pernah meminta password Alpaca.
+Pilih **Saham AS** di tombol pasar (samping judul). Data dan order memakai API dengan key milik Anda sendiri —
+aplikasi tidak pernah meminta password.
 
-**Mulai dengan akun Paper** (uang simulasi di server Alpaca): buat akun di alpaca.markets, pindah ke *Paper Trading*,
-buat API key, lalu isi `.env`:
+**Data harga — Finnhub (disarankan bila Alpaca tidak bisa diakses):** daftar gratis di [finnhub.io](https://finnhub.io),
+salin API key, lalu isi `.env`:
+
+```
+FINNHUB_API_KEY=...
+```
+
+Paket gratis Finnhub memberi harga real-time saham AS (60 permintaan/menit). Endpoint candle Finnhub kini hanya untuk
+paket berbayar, jadi bila ditolak (HTTP 403) grafik memakai Yahoo Finance (tidak resmi). `US_DATA_PROVIDER=auto` memilih
+Finnhub bila key diisi, selain itu Alpaca.
+
+**Order:** Finnhub hanya penyedia data, jadi order memakai **akun simulasi lokal** (saldo USD, tersimpan di SQLite,
+tanpa broker) — otomatis terpilih bila Alpaca tidak diatur. Akun Alpaca Paper/Live tetap bisa dipakai bila Anda punya:
 
 ```
 ALPACA_PAPER_API_KEY=...
@@ -556,20 +567,21 @@ ALPACA_PAPER_API_SECRET=...
 | Fitur | Keterangan |
 |---|---|
 | Harga & grafik | Harga terakhir, candle 1/5/15 menit, 1 jam, harian, EMA 12/26 & sinyal teknikal (kode seperti `AAPL`, `MSFT`, `BRK.B`) |
-| Feed data | `ALPACA_DATA_FEED=iex` (gratis, real-time, tetapi hanya transaksi bursa IEX — volume & harga bisa sedikit berbeda dari gabungan seluruh bursa) atau `sip` (berbayar, seluruh bursa AS) |
-| Order | Market / limit, beli / jual, jumlah dalam USD atau saham (*fractional shares* boleh); order disimpan di Alpaca, jadi riwayat & posisi sama dengan yang tampil di dashboard Alpaca |
+| Feed data Alpaca | `ALPACA_DATA_FEED=iex` (gratis, real-time, tetapi hanya transaksi bursa IEX — volume & harga bisa sedikit berbeda dari gabungan seluruh bursa) atau `sip` (berbayar, seluruh bursa AS) |
+| Akun simulasi lokal | Saldo awal `US_PAPER_STARTING_USD` (bawaan $100.000), order market terisi di harga terakhir (di luar jam bursa = harga penutupan), order limit menunggu harga menyentuh limit, tanpa komisi. Tombol *Reset simulasi saham AS* mengembalikan saldo awal |
+| Order | Market / limit, beli / jual, jumlah dalam USD atau saham (*fractional shares* boleh). Di akun Alpaca, order disimpan di Alpaca sehingga riwayat & posisi sama dengan dashboard Alpaca |
 | Akun live | Uang sungguhan: isi `ALPACA_LIVE_API_KEY/SECRET`, set `ENABLE_LIVE_TRADING=true`, dan setiap order butuh konfirmasi. Nilai satu order dibatasi `US_MAX_ORDER_USD` (bawaan $1.000) |
 | Batas risiko | Order beli tidak boleh melebihi `US_MAX_POSITION_PCT` (bawaan 20%) dari ekuitas |
 | Telegram | Order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan) ikut dikirim bila *Order manual* aktif di tab Notifikasi |
 | Alert harga | Kotak **Alert harga → Telegram** di panel order saham AS: pasang target (naik/turun tembus, sekali atau berulang), garis target tampil di grafik, dan semua alert terkumpul di tab Notifikasi. Harga dicek tiap `PRICE_ALERT_SECONDS`; di luar jam bursa harga tidak berubah sehingga alert tidak terpicu |
-| Jam bursa | 09:30–16:00 waktu New York (Alpaca `/v2/clock`, termasuk hari libur; bila belum ada API key dipakai perkiraan lokal). Order market di luar jam bursa menunggu pembukaan |
+| Jam bursa | 09:30–16:00 waktu New York, dari Finnhub `/stock/market-status` atau Alpaca `/v2/clock` (termasuk hari libur); tanpa keduanya dipakai perkiraan lokal. Di akun Alpaca, order market di luar jam bursa menunggu pembukaan |
 
 Belum tersedia untuk saham AS: auto-trading dan laporan portofolio Telegram (hanya saham IDX dan crypto).
 Mata uang & lot berbeda dari IDX: harga dalam USD, tanpa lot, ARA/ARB, atau fee (Alpaca tidak memungut komisi saham AS;
 biaya regulasi kecil pada penjualan tidak disimulasikan).
 
-> Dari lingkungan pengembangan ini Alpaca tidak bisa dijangkau, jadi fitur diuji dengan server Alpaca tiruan
-> (`tests/fake_alpaca.py`) yang mengikuti dokumentasi resmi. Coba dulu dengan akun Paper sebelum memakai akun live.
+> Dari lingkungan pengembangan ini Finnhub, Alpaca, dan Yahoo tidak bisa dijangkau, jadi fitur diuji dengan server tiruan
+> (`tests/fake_finnhub.py`, `tests/fake_alpaca.py`) yang mengikuti dokumentasi resmi. Coba dulu dengan akun simulasi/Paper sebelum memakai akun live.
 
 ## ⚠️ Tentang eksekusi order di Stockbit / Pluang
 
@@ -609,6 +621,8 @@ app/
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
   crypto_api.py      Endpoint /api/crypto/*
   alpaca.py          Klien API Alpaca, penyedia data & broker saham AS (paper / live)
+  finnhub.py         Penyedia data saham AS dari Finnhub (cadangan candle: Yahoo)
+  us_paper.py        Akun simulasi lokal saham AS (USD)
   us_api.py          Endpoint /api/us/*
   fundamentals.py    Parser laporan keuangan XBRL IDX & rasio fundamental
   fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
@@ -670,6 +684,7 @@ tests/               Unit & API test
 | GET | `/api/us/config` | Status akun Alpaca, feed data & jam bursa AS |
 | GET | `/api/us/quote/{kode}` · `/api/us/chart/{kode}?interval=5m` | Harga & candle saham AS |
 | GET | `/api/us/account?broker=paper` · `/api/us/orders` | Akun, posisi & riwayat order Alpaca |
+| POST | `/api/us/paper/reset` | Reset akun simulasi saham AS |
 | POST | `/api/us/orders` | Kirim order (`quantity` atau `notional`; `confirm_live` untuk akun live) |
 | DELETE | `/api/us/orders/{id}?broker=` | Batalkan order OPEN |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) — hasil disimpan |

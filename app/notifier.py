@@ -208,6 +208,10 @@ class WatchConfig:
     report_time: str = "16:15"
     report_weekdays_only: bool = True
     report_crypto: bool = True
+    # Laporan mingguan: hari (0 = Senin … 6 = Minggu) & jam (WIB).
+    weekly_enabled: bool = False
+    weekly_day: int = 4
+    weekly_time: str = "16:30"
     notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
     # Crypto (Binance): pasar 24 jam, jadi tidak terpengaruh "hanya saat jam bursa".
     crypto_symbols: list[str] = field(default_factory=list)
@@ -230,13 +234,16 @@ class WatchConfig:
             errors.append(f"Candle crypto harus salah satu dari {', '.join(KLINE_INTERVALS)}")
         if not 0 <= self.crypto_move_pct <= 100:
             errors.append("Ambang gerakan crypto harus 0–100%")
-        try:
-            hh, mm = (int(x) for x in str(self.report_time).split(":"))
-            if not (0 <= hh < 24 and 0 <= mm < 60):
-                raise ValueError
-            self.report_time = f"{hh:02d}:{mm:02d}"
-        except ValueError:
-            errors.append("Jam laporan harian harus berformat JJ:MM (mis. 16:15)")
+        for attr, label in (("report_time", "harian"), ("weekly_time", "mingguan")):
+            try:
+                hh, mm = (int(x) for x in str(getattr(self, attr)).split(":"))
+                if not (0 <= hh < 24 and 0 <= mm < 60):
+                    raise ValueError
+                setattr(self, attr, f"{hh:02d}:{mm:02d}")
+            except ValueError:
+                errors.append(f"Jam laporan {label} harus berformat JJ:MM (mis. 16:15)")
+        if self.weekly_day not in range(7):
+            errors.append("Hari laporan mingguan harus 0 (Senin) – 6 (Minggu)")
         if self.interval_seconds < 60:
             errors.append("Interval minimal 60 detik")
         if self.min_buy_score < 1 or self.max_sell_score > -1:
@@ -511,4 +518,6 @@ class SignalWatcher:
             "last_action": self.last_action, "history": list(self.history)[:100],
             "report_schedule": self.reporter.next_run() if self.reporter else None,
             "report_last_sent": self.reporter.last_sent if self.reporter else None,
+            "weekly_schedule": self.reporter.next_weekly() if self.reporter else None,
+            "weekly_last_sent": self.reporter.last_weekly_sent if self.reporter else None,
         }

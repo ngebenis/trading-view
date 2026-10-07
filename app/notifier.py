@@ -216,6 +216,9 @@ class WatchConfig:
     monthly_enabled: bool = False
     monthly_day: int = 0
     monthly_time: str = "16:45"
+    # Laporan tahunan: setiap 31 Desember, jam (WIB).
+    yearly_enabled: bool = False
+    yearly_time: str = "16:50"
     notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
     # Crypto (Binance): pasar 24 jam, jadi tidak terpengaruh "hanya saat jam bursa".
     crypto_symbols: list[str] = field(default_factory=list)
@@ -238,7 +241,8 @@ class WatchConfig:
             errors.append(f"Candle crypto harus salah satu dari {', '.join(KLINE_INTERVALS)}")
         if not 0 <= self.crypto_move_pct <= 100:
             errors.append("Ambang gerakan crypto harus 0–100%")
-        for attr, label in (("report_time", "harian"), ("weekly_time", "mingguan"), ("monthly_time", "bulanan")):
+        for attr, label in (("report_time", "harian"), ("weekly_time", "mingguan"), ("monthly_time", "bulanan"),
+                            ("yearly_time", "tahunan")):
             try:
                 hh, mm = (int(x) for x in str(getattr(self, attr)).split(":"))
                 if not (0 <= hh < 24 and 0 <= mm < 60):
@@ -528,4 +532,6 @@ class SignalWatcher:
             "weekly_last_sent": self.reporter.last_weekly_sent if self.reporter else None,
             "monthly_schedule": self.reporter.next_monthly() if self.reporter else None,
             "monthly_last_sent": self.reporter.last_monthly_sent if self.reporter else None,
+            "yearly_schedule": self.reporter.next_yearly() if self.reporter else None,
+            "yearly_last_sent": self.reporter.last_yearly_sent if self.reporter else None,
         }

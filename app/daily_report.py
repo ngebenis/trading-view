@@ -5,6 +5,8 @@
             merangkum 7 hari terakhir.
 - Bulanan : tanggal `monthly_day` (0 = hari terakhir bulan, atau 1–28) jam `monthly_time` (bawaan 16:45);
             merangkum bulan berjalan dibanding akhir bulan sebelumnya, plus ekuitas tertinggi/terendah.
+- Tahunan : 31 Desember jam `yearly_time` (bawaan 16:50); merangkum tahun berjalan dibanding akhir tahun
+            lalu, plus return per bulan dan ekuitas tertinggi/terendah setahun.
 
 Perubahan ekuitas dihitung dari snapshot ekuitas harian (setting `report_snapshots`) yang dicatat
 otomatis sekali sehari setelah bursa tutup (dan setiap kali laporan dikirim).
@@ -28,7 +30,10 @@ SNAPSHOT_TIME = "16:00"  # snapshot otomatis harian (WIB), setelah penutupan bur
 DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober",
           "November", "Desember"]
-PERIOD_NAME = {"daily": "harian", "weekly": "mingguan", "monthly": "bulanan"}
+MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+PERIOD_NAME = {"daily": "harian", "weekly": "mingguan", "monthly": "bulanan", "yearly": "tahunan"}
+LAST_SENT_ATTR = {"daily": "last_sent", "weekly": "last_weekly_sent", "monthly": "last_monthly_sent",
+                  "yearly": "last_yearly_sent"}
 
 
 def signed_rp(x: float) -> str:
@@ -59,6 +64,9 @@ class Window:
         if period == "monthly":
             start = today.replace(day=1)
             return cls(period, start - timedelta(days=1), start, "bulan ini", "bulan ini")
+        if period == "yearly":
+            start = today.replace(month=1, day=1)
+            return cls(period, start - timedelta(days=1), start, "tahun ini", "tahun ini")
         return cls("daily", None, today, "hari ini", "")
 
 
@@ -77,14 +85,14 @@ class DailyReporter:
         self.last_sent: str | None = state.get("last_sent")
         self.last_weekly_sent: str | None = state.get("last_weekly_sent")
         self.last_monthly_sent: str | None = state.get("last_monthly_sent")
+        self.last_yearly_sent: str | None = state.get("last_yearly_sent")
 
     def _now(self) -> datetime:
         return datetime.fromtimestamp(self.clock(), WIB)
 
     def _save_state(self) -> None:
         if self.db is not None:
-            self.db.set_setting("daily_report", {"last_sent": self.last_sent, "last_weekly_sent": self.last_weekly_sent,
-                                                 "last_monthly_sent": self.last_monthly_sent})
+            self.db.set_setting("daily_report", {attr: getattr(self, attr) for attr in LAST_SENT_ATTR.values()})
 
     # ---- snapshot ekuitas ----------------------------------------------
     def _snapshots(self) -> dict:
@@ -131,6 +139,22 @@ class DailyReporter:
         return (f"Tertinggi {money(points[hi])}{unit_suffix} ({ddmm(hi)}) · "
                 f"terendah {money(points[lo])}{unit_suffix} ({ddmm(lo)})")
 
+    def _monthly_returns(self, account: str, today: str, window: Window, equity: float) -> str | None:
+        """Tahunan: return tiap bulan dari snapshot akhir bulan (pembanding bulan pertama = akhir tahun lalu)."""
+        series = dict(self._snapshots().get(account, {}))
+        series[today] = equity
+        month_end: dict[str, float] = {}
+        for d in sorted(series):
+            month_end[d[:7]] = series[d]  # nilai terakhir tiap bulan
+        prev = month_end.get(window.cutoff.isoformat()[:7])  # akhir tahun lalu
+        parts = []
+        for ym in sorted(m for m in month_end if m >= window.start.isoformat()[:7]):
+            value = month_end[ym]
+            if prev:
+                parts.append(f"{MONTHS_SHORT[int(ym[5:7]) - 1]} {_pct((value / prev - 1) * 100)}")
+            prev = value
+        return "Per bulan: " + " · ".join(parts) if parts else None
+
     # ---- harga pada tanggal pembanding ----------------------------------
     @staticmethod
     def _close_before(candles, cutoff: date) -> float | None:
@@ -139,12 +163,12 @@ class DailyReporter:
 
     def _change_since(self, provider, sym: str, price: float, cutoff: date, crypto: bool = False) -> float | None:
         """Perubahan harga (%) sejak penutupan pada/terakhir sebelum `cutoff`."""
-        long = (self._now().date() - cutoff).days > 20
+        days = (self._now().date() - cutoff).days
         try:
             if crypto:
-                candles = provider.candles(sym, None, "1d", 45 if long else 15)
+                candles = provider.candles(sym, None, "1d", 400 if days > 40 else 45 if days > 20 else 15)
             else:
-                candles = provider.candles(sym, "3mo" if long else "1mo", "1d")
+                candles = provider.candles(sym, "2y" if days > 80 else "3mo" if days > 20 else "1mo", "1d")
         except MarketDataError:
             return None
         prev = self._close_before(candles, cutoff)
@@ -163,10 +187,14 @@ class DailyReporter:
         ref = self._reference("idx", today, window)
         money = lambda x: f"Rp{rupiah(x)}"  # noqa: E731
         lines = ["<b>📈 Saham IDX — akun simulasi</b>", self._equity_line(acct["equity"], ref, money)]
-        if window.period == "monthly":
+        if window.period in ("monthly", "yearly"):
             rng = self._range_line("idx", today, window, acct["equity"], money)
             if rng:
                 lines.append(rng)
+        if window.period == "yearly":
+            months = self._monthly_returns("idx", today, window, acct["equity"])
+            if months:
+                lines.append(months)
         if save:
             self._save_snapshot("idx", today, acct["equity"])
         lines += [f"Kas: Rp{rupiah(acct['cash'])} · Nilai saham: Rp{rupiah(acct['market_value'])}",
@@ -232,16 +260,20 @@ class DailyReporter:
         today = now.strftime("%Y-%m-%d")
         ref = self._reference("crypto", today, window)
         lines = ["<b>🪙 Crypto — akun simulasi (USDT)</b>", self._equity_line(acct["equity"], ref, usdt, " USDT")]
-        if window.period == "monthly":
+        if window.period in ("monthly", "yearly"):
             rng = self._range_line("crypto", today, window, acct["equity"], usdt, " USDT")
             if rng:
                 lines.append(rng)
+        if window.period == "yearly":
+            months = self._monthly_returns("crypto", today, window, acct["equity"])
+            if months:
+                lines.append(months)
         if save:
             self._save_snapshot("crypto", today, acct["equity"])
         lines.append(f"Saldo USDT: {usdt(acct['cash'])} · Total P/L: {'+' if acct['total_pl'] >= 0 else '-'}"
                      f"{usdt(abs(acct['total_pl']))} ({_pct(acct['total_pl_pct'])})")
         positions = sorted(acct["positions"], key=lambda p: -p["market_value"])
-        short = {"weekly": "7h", "monthly": "bln"}
+        short = {"weekly": "7h", "monthly": "bln", "yearly": "thn"}
         for p in positions[:MAX_POSITIONS]:
             if window.cutoff is None:
                 try:
@@ -270,6 +302,10 @@ class DailyReporter:
         elif window.period == "weekly":
             head = (f"📅 <b>Laporan mingguan portofolio — {window.start:%d/%m} s/d {now:%d/%m/%Y}</b>\n"
                     f"<i>Dibuat {made}</i>")
+        elif window.period == "yearly":
+            head = (f"🎆 <b>Laporan tahunan portofolio — {now.year}</b>\n"
+                    f"<i>{window.start:%d/%m} s/d {now:%d/%m/%Y} · dibanding akhir tahun lalu ({window.cutoff:%d/%m/%Y}) · "
+                    f"dibuat {made}</i>")
         else:
             head = (f"🗓️ <b>Laporan bulanan portofolio — {MONTHS[now.month - 1]} {now.year}</b>\n"
                     f"<i>{window.start:%d/%m} s/d {now:%d/%m/%Y} · dibanding akhir bulan lalu ({window.cutoff:%d/%m}) · "
@@ -289,8 +325,7 @@ class DailyReporter:
             if not ok:
                 return self.watcher._record("ERROR", "-", f"Laporan {name} gagal dikirim: {err}")
             today = self._now().strftime("%Y-%m-%d")
-            setattr(self, {"daily": "last_sent", "weekly": "last_weekly_sent", "monthly": "last_monthly_sent"}[period],
-                    today)
+            setattr(self, LAST_SENT_ATTR[period], today)
             self._save_state()
             return self.watcher._record("REPORT", "-", f"Laporan {name} portofolio terkirim", sent=True)
 
@@ -324,6 +359,14 @@ class DailyReporter:
             return False
         return now.strftime("%H:%M") >= cfg.monthly_time
 
+    def yearly_due(self) -> bool:
+        cfg, now = self.watcher.config, self._now()
+        if not cfg.yearly_enabled or not self._ready() or (now.month, now.day) != (12, 31):
+            return False
+        if self.last_yearly_sent == now.strftime("%Y-%m-%d"):
+            return False
+        return now.strftime("%H:%M") >= cfg.yearly_time
+
     def maybe_snapshot(self) -> bool:
         """Catat ekuitas sekali sehari setelah bursa tutup, walau laporan harian tidak aktif."""
         now = self._now()
@@ -341,6 +384,8 @@ class DailyReporter:
             out.append(self.send_now("weekly"))
         if self.monthly_due():
             out.append(self.send_now("monthly"))
+        if self.yearly_due():
+            out.append(self.send_now("yearly"))
         self.maybe_snapshot()
         return out
 
@@ -360,6 +405,10 @@ class DailyReporter:
             return None
         day = "hari terakhir tiap bulan" if cfg.monthly_day == 0 else f"tanggal {cfg.monthly_day} tiap bulan"
         return f"{day} {cfg.monthly_time} WIB"
+
+    def next_yearly(self) -> str | None:
+        cfg = self.watcher.config
+        return f"31 Desember {cfg.yearly_time} WIB" if cfg.yearly_enabled else None
 
     # ---- loop latar belakang -------------------------------------------
     def start(self) -> None:

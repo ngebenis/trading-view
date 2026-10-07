@@ -389,7 +389,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         return notifier_call(watcher.stop)
 
     @app.post("/api/notifications/report")
-    def notifications_report(period: str = Query("daily", pattern="^(daily|weekly|monthly)$")):
+    def notifications_report(period: str = Query("daily", pattern="^(daily|weekly|monthly|yearly)$")):
         if not watcher.status()["configured"]:
             raise HTTPException(400, "Isi bot token dan chat ID Telegram terlebih dahulu")
         entry = reporter.send_now(period)
@@ -398,7 +398,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         return watcher.status()
 
     @app.get("/api/notifications/report/preview")
-    def notifications_report_preview(period: str = Query("daily", pattern="^(daily|weekly|monthly)$")):
+    def notifications_report_preview(period: str = Query("daily", pattern="^(daily|weekly|monthly|yearly)$")):
         return {"text": reporter.build(save=False, period=period)}
 
     @app.post("/api/notifications/run-once")

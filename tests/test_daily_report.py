@@ -167,7 +167,7 @@ def test_weekly_api_and_validation(tmp_path):
     tg = FakeTelegram()
     c = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider(), telegram_http=tg.client()))
     assert "Laporan mingguan portofolio" in c.get("/api/notifications/report/preview?period=weekly").json()["text"]
-    assert c.get("/api/notifications/report/preview?period=yearly").status_code == 422
+    assert c.get("/api/notifications/report/preview?period=hourly").status_code == 422
     st = c.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "weekly_enabled": True,
                                                   "weekly_day": 0, "weekly_time": "8:0"}).json()
     assert st["weekly_schedule"] == "Senin 08:00 WIB"
@@ -235,3 +235,65 @@ def test_monthly_api_and_validation(tmp_path):
     assert c.put("/api/notifications/config", json={"monthly_day": 29}).status_code == 400
     st = c.post("/api/notifications/report?period=monthly").json()
     assert st["history"][0]["message"] == "Laporan bulanan portofolio terkirim" and st["monthly_last_sent"]
+
+
+THU_3112 = datetime(2026, 12, 31, 16, 50, tzinfo=WIB).timestamp()
+
+
+class YearHistory(Prices):
+    """Candle harian 1/12/2025 … 31/12/2026: penutupan Desember 2025 = `dec_close`, sesudahnya = harga sekarang."""
+
+    def __init__(self, dec_close, **p):
+        super().__init__(**p)
+        self.dec_close = dec_close
+        self.ranges = []
+
+    def candles(self, symbol, range_="2y", interval="1d"):
+        from app.market_data import Candle
+        self.ranges.append(range_)
+        out = []
+        for i in range(396):
+            d = datetime(2025, 12, 1, 9, 0, tzinfo=WIB) + timedelta(days=i)
+            close = self.dec_close[symbol] if d.year == 2025 else self.p[symbol][0]
+            out.append(Candle(int(d.timestamp()), close, close, close, close, 0))
+        return out
+
+
+def test_yearly_schedule_and_content(env):
+    from app.daily_report import signed_rp
+    rep, watcher, paper, _, _, tg, clock = env
+    rep.provider = YearHistory({"BBCA": 10000, "TLKM": 3000, "IHSG": 7500.0},
+                               BBCA=(9050, 9000), TLKM=(3800, 3850), IHSG=(7123.45, 7100.0))
+    paper.place_order(Order("TLKM", Side.BUY, 5, OrderType.MARKET, created_at=clock["t"]), 3850)
+    watcher.update_config({"report_enabled": False, "yearly_enabled": True})
+    assert rep.next_yearly() == "31 Desember 16:50 WIB"
+    for day, equity in [("2025-12-31", 100_000_000), ("2026-01-30", 102_000_000), ("2026-02-27", 101_000_000),
+                        ("2026-06-15", 104_000_000), ("2026-06-30", 103_000_000)]:
+        rep._save_snapshot("idx", day, equity)
+    clock["t"] = THU_3112 - 86400  # 30/12: belum
+    assert not rep.yearly_due()
+    clock["t"] = THU_3112
+    assert [e["message"] for e in rep.run_due()] == ["Laporan tahunan portofolio terkirim"]
+    assert "2y" in rep.provider.ranges  # candle cukup panjang untuk penutupan akhir tahun lalu
+    text = tg.sent[-1]["text"]
+    assert "Laporan tahunan portofolio — 2026" in text and "dibanding akhir tahun lalu (31/12/2025)" in text
+    equity = paper.account({"BBCA": 9050, "TLKM": 3800})["equity"]
+    assert f"({signed_rp(equity - 100_000_000)} / " in text and "sejak 31/12)" in text
+    assert "Tertinggi Rp104.000.000 (15/06)" in text
+    assert "Per bulan: Jan +2,00% · Feb -0,98% · Jun +1,98% · Des " in text
+    assert "perubahan harga tahun ini" in text and "• BBCA 10 lot · 9.050 (-9,50%)" in text
+    assert "Terbaik: TLKM +26,67% · Terburuk: BBCA -9,50%" in text
+    assert "Transaksi tahun ini: 2 beli, 0 jual" in text and "IHSG: 7.123,45 (-5,02% tahun ini)" in text
+    assert rep.run_due() == []  # sekali per tahun
+
+
+def test_yearly_api(tmp_path):
+    tg = FakeTelegram()
+    c = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider(), telegram_http=tg.client()))
+    assert "Laporan tahunan portofolio" in c.get("/api/notifications/report/preview?period=yearly").json()["text"]
+    st = c.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "yearly_enabled": True,
+                                                  "yearly_time": "17:5"}).json()
+    assert st["yearly_schedule"] == "31 Desember 17:05 WIB"
+    assert c.put("/api/notifications/config", json={"yearly_time": "99:00"}).status_code == 400
+    st = c.post("/api/notifications/report?period=yearly").json()
+    assert st["history"][0]["message"] == "Laporan tahunan portofolio terkirim" and st["yearly_last_sent"]

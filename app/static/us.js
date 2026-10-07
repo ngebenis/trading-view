@@ -154,6 +154,7 @@
       $("#uChartMsg").textContent = d.bars.length ? "" : "Belum ada data";
       candles.applyOptions({ priceFormat: { type: "price", precision: 2, minMove: 0.01 } });
       candles.setData(d.bars);
+      applyAlertLines();
       volume.setData(d.bars.map((b) => ({ time: b.time, value: b.volume,
         color: b.close >= b.open ? css("--up") + "55" : css("--down") + "55" })));
       ema12.setData(d.ema12); ema26.setData(d.ema26);
@@ -163,6 +164,18 @@
       $("#uChartMsg").textContent = e.message;
     }
   }
+  // Garis target alert harga Telegram (alerts.js) untuk saham yang sedang dibuka.
+  let alertLines = [];
+  function applyAlertLines() {
+    if (!candles || !chartData) return;
+    alertLines.forEach((l) => candles.removePriceLine(l));
+    const bars = chartData.bars;
+    alertLines = window.alertPriceLines?.(candles, chartData.symbol, bars.length ? bars[bars.length - 1].close : null,
+                                         css("--accent"), LWC, "us") || [];
+  }
+  window.addEventListener("alerts-changed", applyAlertLines);
+  window.usCurrent = () => ({ symbol: st.symbol, price: st.quote?.symbol === st.symbol ? st.quote.price : null });
+
   function liveUpdateChart(p) {
     if (!chartData || !candles || !chartData.bars.length || st.quote?.symbol !== chartData.symbol) return;
     const last = chartData.bars[chartData.bars.length - 1];

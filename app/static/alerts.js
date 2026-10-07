@@ -4,7 +4,9 @@
   let status = null;
 
   const isCrypto = (a) => a.market === "crypto";
-  const num = (x, sym, market) => market === "crypto"
+  const num = (x, sym, market) => market === "us"
+    ? "$" + Number(x).toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: Math.abs(x) >= 1 ? 2 : 4 })
+    : market === "crypto"
     ? Number(x).toLocaleString("id-ID", { maximumFractionDigits: Math.abs(x) >= 1000 ? 2 : Math.abs(x) >= 1 ? 4 : 8 })
     : fmtPrice(x, sym);
   const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit",
@@ -15,6 +17,7 @@
   const boxes = [
     { form: "#alertForm", market: "idx", current: () => ({ symbol: state.symbol, price: state.quote?.symbol === state.symbol ? state.price : null }) },
     { form: "#cAlertForm", market: "crypto", current: () => window.cryptoCurrent?.() || {} },
+    { form: "#uAlertForm", market: "us", current: () => window.usCurrent?.() || {} },
   ];
 
   function renderBox(box) {
@@ -29,7 +32,7 @@
         : `Kabari saat ${symbol} ${target > price ? "naik ≥" : "turun ≤"} ${num(target, symbol, box.market)}` +
           ` (${target > price ? "+" : ""}${((target / price - 1) * 100).toFixed(2).replace(".", ",")}% dari harga sekarang)`;
     } else hint.textContent = symbol ? `Alert untuk ${symbol}, dicek tiap ±${status?.interval_seconds ?? 30} detik` : "";
-    const mine = (status?.alerts || []).filter((a) => a.symbol === symbol);
+    const mine = (status?.alerts || []).filter((a) => a.symbol === symbol && (a.market || "idx") === box.market);
     f.querySelector(".alert-list").innerHTML = mine.map((a) => `<li class="${a.status === "active" ? "" : "done"}"
         title="${escapeHtml(a.note || "")}"><span>${arrow(a)} <b>${num(a.target, a.symbol, a.market)}</b>` +
       `${a.repeat ? " 🔁" : ""}${a.status === "active" ? "" : ` · ✓ ${when(a.triggered_at)}`}` +
@@ -44,7 +47,7 @@
     $("#alertCount").textContent = status.alerts.length ? `(${active} aktif dari ${status.alerts.length})` : "";
     $("#alertInterval").textContent = status.interval_seconds;
     t.innerHTML = `<tr><th>Kode</th><th>Target</th><th>Dipasang</th><th>Status</th><th>Terpicu</th><th>Catatan</th><th></th></tr>` +
-      (status.alerts.length ? status.alerts.map((a) => `<tr><td>${escapeHtml(a.symbol)}${isCrypto(a) ? " <span class='muted'>crypto</span>" : ""}</td>
+      (status.alerts.length ? status.alerts.map((a) => `<tr><td>${escapeHtml(a.symbol)}${isCrypto(a) ? " <span class='muted'>crypto</span>" : a.market === "us" ? " <span class='muted'>AS</span>" : ""}</td>
         <td>${arrow(a)} ${num(a.target, a.symbol, a.market)}${a.repeat ? " 🔁" : ""}</td>
         <td>${num(a.created_price, a.symbol, a.market)} · ${when(a.created_at)}</td>
         <td>${a.status === "active" ? (a.armed ? "● aktif" : "menunggu harga kembali") : "✓ selesai"}</td>
@@ -90,7 +93,7 @@
       if (!symbol || !target) { msg(f, "Isi target harga", false); return; }
       try {
         const res = await api("/api/alerts", { method: "POST", body: JSON.stringify({
-          symbol, target, note: f.elements.note.value, repeat: f.elements.repeat.checked }) });
+          symbol, target, market: box.market, note: f.elements.note.value, repeat: f.elements.repeat.checked }) });
         status = res;
         const a = res.alerts.find((x) => x.id === res.created);
         msg(f, `Alert dipasang: ${a.symbol} ${arrow(a)} ${num(a.target, a.symbol, a.market)}` +
@@ -106,10 +109,12 @@
   setInterval(() => boxes.forEach(renderBox), 2_000);            // ikut saham/pasangan yang sedang dibuka
   window.reloadAlerts = load;
   // Alert aktif untuk satu simbol (dipakai grafik saham & crypto untuk garis target).
-  window.activeAlertsFor = (sym) => (status?.alerts || []).filter((a) => a.symbol === sym && a.status === "active");
+  // `market` kosong = grafik saham IDX / crypto (alert saham AS dengan kode sama tidak ikut).
+  window.activeAlertsFor = (sym, market) => (status?.alerts || []).filter((a) => a.symbol === sym && a.status === "active"
+    && (market ? a.market === market : a.market !== "us"));
   // Garis target + perluasan skala harga agar target yang dekat (±25% dari harga terakhir) tetap terlihat.
-  window.alertPriceLines = (series, sym, lastPrice, color, LWC, format) => {
-    const alerts = window.activeAlertsFor(sym);
+  window.alertPriceLines = (series, sym, lastPrice, color, LWC, market) => {
+    const alerts = window.activeAlertsFor(sym, market);
     const lines = alerts.map((a) => series.createPriceLine({
       price: a.target, color, lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true,
       title: `🎯 ${a.direction === "above" ? "▲" : "▼"}${a.note ? " " + a.note.slice(0, 18) : ""}`,

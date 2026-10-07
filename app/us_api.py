@@ -35,6 +35,9 @@ def register_us(app: FastAPI, settings: Settings, watcher=None, http=None) -> di
     key = next(((b.api.key, b.api.secret) for b in (paper, live) if b.available()), ("", ""))
     provider = AlpacaProvider(AlpacaAPI(settings.alpaca_data_url, *key, client=http), settings.alpaca_data_feed)
 
+    if watcher is not None:
+        watcher.us_provider = provider  # alert harga saham AS di Telegram
+
     def notify_order(b: AlpacaBroker, order: UsOrder, event: str) -> None:
         if watcher is not None:
             watcher.notify_order(order.to_dict(), event, "us", b.display_name)

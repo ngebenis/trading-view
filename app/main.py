@@ -417,6 +417,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         note: str = ""
         repeat: bool = False
         cooldown_minutes: int = 30
+        market: str | None = None     # idx / crypto / us; kosong = otomatis (IDX atau crypto)
 
     def alert_call(fn):
         try:
@@ -431,7 +432,7 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     @app.post("/api/alerts")
     def alerts_add(body: AlertBody):
         alert, notes = alert_call(lambda: price_alerts.add(body.symbol, body.target, body.direction, body.note,
-                                                           body.repeat, body.cooldown_minutes))
+                                                           body.repeat, body.cooldown_minutes, body.market))
         return {**price_alerts.status(), "created": alert.id, "notes": notes}
 
     @app.delete("/api/alerts/{alert_id}")

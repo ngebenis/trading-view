@@ -1,4 +1,4 @@
-"""Alert harga ke Telegram: kabari saat harga saham IDX / pasangan crypto menembus target.
+"""Alert harga ke Telegram: kabari saat harga saham IDX / saham AS / pasangan crypto menembus target.
 
 Arah alert ditentukan dari harga saat dipasang (target di atas harga -> "naik tembus", di bawah ->
 "turun tembus"), jadi alert tidak langsung terpicu. Harga diperiksa tiap PRICE_ALERT_SECONDS
@@ -16,8 +16,9 @@ from datetime import datetime
 from .autotrader import WIB, rupiah
 from .binance import is_crypto_pair, normalize_pair, split_pair
 from .idx_rules import is_index, normalize_symbol, price_limits
+from .alpaca import normalize_us
 from .market_data import MarketDataError
-from .notifier import _pct, crypto_links, index_value, stock_links
+from .notifier import _pct, crypto_links, index_value, stock_links, us_links
 
 MAX_ALERTS = 100
 
@@ -31,7 +32,7 @@ class PriceAlert:
     symbol: str
     target: float
     direction: str                  # "above" (naik tembus) / "below" (turun tembus)
-    market: str = "idx"             # idx / crypto
+    market: str = "idx"             # idx / crypto / us
     note: str = ""
     repeat: bool = False
     cooldown_minutes: int = 30      # alert berulang: jeda minimal antar pesan
@@ -52,11 +53,15 @@ def fmt_price(symbol: str, market: str, x: float, currency: str = "") -> str:
     if market == "crypto":
         from .crypto import price_str
         return f"{price_str(x)} {currency}".strip()
+    if market == "us":
+        from .crypto import usdt
+        return f"${usdt(x)}"
     return index_value(x) if is_index(symbol) else rupiah(x)
 
 
 def format_alert(a: PriceAlert, quote) -> str:
     cur = quote.currency if a.market == "crypto" else ""
+    links = {"crypto": crypto_links, "us": us_links}.get(a.market, stock_links)
     up = a.direction == "above"
     period = "24 jam" if a.market == "crypto" else "hari ini"
     lines = [f"🎯 <b>{html.escape(a.symbol)} {'naik tembus' if up else 'turun tembus'} "
@@ -71,7 +76,7 @@ def format_alert(a: PriceAlert, quote) -> str:
         lines.append(f"Catatan: {html.escape(a.note)}")
     if a.repeat:
         lines.append(f"<i>Alert berulang — aktif lagi setelah harga kembali {'di bawah' if up else 'di atas'} target.</i>")
-    lines += ["", crypto_links(a.symbol) if a.market == "crypto" else stock_links(a.symbol)]
+    lines += ["", links(a.symbol)]
     return "\n".join(lines)
 
 
@@ -95,7 +100,9 @@ class PriceAlertWatcher:
         if self.db is not None:
             self.db.set_setting("price_alerts", [asdict(a) for a in self.alerts])
 
-    def _market(self, symbol: str) -> tuple[str, str]:
+    def _market(self, symbol: str, market: str | None = None) -> tuple[str, str]:
+        if market == "us":  # kode saham AS bisa sama dengan kode IDX/crypto, jadi pasarnya dipilih eksplisit
+            return "us", normalize_us(symbol)
         return ("crypto", normalize_pair(symbol)) if is_crypto_pair(symbol) else ("idx", normalize_symbol(symbol))
 
     def _quote(self, symbol: str, market: str):
@@ -104,14 +111,23 @@ class PriceAlertWatcher:
             if crypto is None:
                 raise MarketDataError("Data crypto (Binance) belum tersedia")
             return crypto.quote(symbol)
+        if market == "us":
+            us = getattr(self.notifier, "us_provider", None)
+            if us is None:
+                raise MarketDataError("Data saham AS (Alpaca) belum tersedia")
+            return us.quote(symbol)
         return self.provider.quote(symbol)
 
     # ---- kelola alert ------------------------------------------------
     def add(self, symbol: str, target: float, direction: str | None = None, note: str = "",
-            repeat: bool = False, cooldown_minutes: int = 30) -> tuple[PriceAlert, list[str]]:
-        market, sym = self._market(symbol)
+            repeat: bool = False, cooldown_minutes: int = 30,
+            market: str | None = None) -> tuple[PriceAlert, list[str]]:
+        if market not in (None, "", "auto", "idx", "crypto", "us"):
+            raise AlertError("Pasar harus idx, crypto, atau us")
+        market, sym = self._market(symbol, market)
         if not sym:
-            raise AlertError("Isi kode saham atau pasangan crypto")
+            raise AlertError("Isi kode saham AS yang valid (mis. AAPL)" if market == "us"
+                             else "Isi kode saham atau pasangan crypto")
         if not target or target <= 0:
             raise AlertError("Target harga harus lebih dari 0")
         if direction not in (None, "", "auto", "above", "below"):

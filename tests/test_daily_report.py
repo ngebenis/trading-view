@@ -359,3 +359,64 @@ def test_quarterly_api(tmp_path):
     assert c.put("/api/notifications/config", json={"quarterly_time": "x"}).status_code == 400
     st = c.post("/api/notifications/report?period=quarterly").json()
     assert st["history"][0]["message"] == "Laporan kuartalan portofolio terkirim" and st["quarterly_last_sent"]
+
+
+THU_3112_1649 = datetime(2026, 12, 31, 16, 49, tzinfo=WIB).timestamp()
+
+
+class SemesterHistory(Prices):
+    """Candle harian 1/5 … 31/12/2026: penutupan s/d 30/6 = `jun_close`, sesudahnya = harga sekarang."""
+
+    def __init__(self, jun_close, **p):
+        super().__init__(**p)
+        self.jun_close = jun_close
+
+    def candles(self, symbol, range_="2y", interval="1d"):
+        from app.market_data import Candle
+        out = []
+        for i in range(245):
+            d = datetime(2026, 5, 1, 9, 0, tzinfo=WIB) + timedelta(days=i)
+            close = self.jun_close[symbol] if d.month <= 6 else self.p[symbol][0]
+            out.append(Candle(int(d.timestamp()), close, close, close, close, 0))
+        return out
+
+
+def test_semiannual_schedule_and_content(env):
+    from app.daily_report import signed_rp
+    rep, watcher, paper, _, _, tg, clock = env
+    rep.provider = SemesterHistory({"BBCA": 8500, "TLKM": 4000, "IHSG": 7000.0},
+                                   BBCA=(9050, 9000), TLKM=(3800, 3850), IHSG=(7123.45, 7100.0))
+    watcher.update_config({"report_enabled": False, "semiannual_enabled": True})
+    assert rep.next_semiannual() == "30 Juni & 31 Desember 16:49 WIB"
+    clock["t"] = datetime(2026, 6, 30, 16, 49, tzinfo=WIB).timestamp()  # akhir semester 1 juga dijadwalkan
+    assert rep.semiannual_due()
+    clock["t"] = datetime(2026, 9, 30, 16, 49, tzinfo=WIB).timestamp()  # akhir kuartal, bukan akhir semester
+    assert not rep.semiannual_due()
+    for day, equity in [("2026-06-30", 100_000_000), ("2026-07-31", 101_000_000), ("2026-08-31", 99_990_000),
+                        ("2026-09-30", 102_000_000), ("2026-10-15", 104_000_000), ("2026-11-30", 103_000_000)]:
+        rep._save_snapshot("idx", day, equity)
+    clock["t"] = THU_3112_1649
+    assert [e["message"] for e in rep.run_due()] == ["Laporan semesteran portofolio terkirim"]
+    text = tg.sent[-1]["text"]
+    assert "Laporan semesteran portofolio — Semester 2 2026</b> (Jul–Des)" in text
+    assert "01/07 s/d 31/12/2026 · dibanding akhir semester lalu (30/06/2026)" in text
+    equity = paper.account({"BBCA": 9050})["equity"]
+    assert f"({signed_rp(equity - 100_000_000)} / " in text and "sejak 30/06)" in text
+    assert "Tertinggi Rp104.000.000 (15/10)" in text
+    assert "Per bulan: Jul +1,00% · Agu -1,00% · Sep +2,01% · Okt +1,96% · Nov -0,96% · Des " in text
+    assert "perubahan harga semester ini" in text and "• BBCA 10 lot · 9.050 (+6,47%)" in text
+    assert "IHSG: 7.123,45 (+1,76% semester ini)" in text
+    assert rep.run_due() == []  # sekali per semester
+
+
+def test_semiannual_api(tmp_path):
+    tg = FakeTelegram()
+    c = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider(), telegram_http=tg.client()))
+    text = c.get("/api/notifications/report/preview?period=semiannual").json()["text"]
+    assert "Laporan semesteran portofolio — Semester 2 2026" in text and "(Jul–Des)" in text
+    st = c.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "semiannual_enabled": True,
+                                                  "semiannual_time": "9:15"}).json()
+    assert st["semiannual_schedule"] == "30 Juni & 31 Desember 09:15 WIB"
+    assert c.put("/api/notifications/config", json={"semiannual_time": "24:00"}).status_code == 400
+    st = c.post("/api/notifications/report?period=semiannual").json()
+    assert st["history"][0]["message"] == "Laporan semesteran portofolio terkirim" and st["semiannual_last_sent"]

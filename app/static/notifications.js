@@ -1,7 +1,8 @@
 // Tab Notifikasi Telegram. Memakai helper global dari app.js: $, api, cleanSymbol, escapeHtml, state.
 (() => {
   let initialized = false;
-  const SEND_BUTTONS = ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend", "#notifQuarterlySend", "#notifYearlySend"];
+  const SEND_BUTTONS = ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend", "#notifQuarterlySend", "#notifSemiannualSend",
+                        "#notifYearlySend"];
   let lastStatus = null;
 
   const msg = (text, ok = true) => {
@@ -34,6 +35,8 @@
     f.elements.monthly_time.value = c.monthly_time;
     f.elements.quarterly_enabled.checked = c.quarterly_enabled;
     f.elements.quarterly_time.value = c.quarterly_time;
+    f.elements.semiannual_enabled.checked = c.semiannual_enabled;
+    f.elements.semiannual_time.value = c.semiannual_time;
     f.elements.yearly_enabled.checked = c.yearly_enabled;
     f.elements.yearly_time.value = c.yearly_time;
     f.elements.bot_token.disabled = st.token_from_env;
@@ -63,6 +66,7 @@
         (st.weekly_schedule ? ` · laporan mingguan ${st.weekly_schedule}` : "") +
         (st.monthly_schedule ? ` · laporan bulanan ${st.monthly_schedule}` : "") +
         (st.quarterly_schedule ? ` · laporan kuartalan ${st.quarterly_schedule}` : "") +
+        (st.semiannual_schedule ? ` · laporan semesteran ${st.semiannual_schedule}` : "") +
         (st.yearly_schedule ? ` · laporan tahunan ${st.yearly_schedule}` : "");
     for (const id of SEND_BUTTONS) $(id).disabled = !st.configured;
 
@@ -105,6 +109,8 @@
       monthly_time: f.elements.monthly_time.value || "16:45",
       quarterly_enabled: f.elements.quarterly_enabled.checked,
       quarterly_time: f.elements.quarterly_time.value || "16:48",
+      semiannual_enabled: f.elements.semiannual_enabled.checked,
+      semiannual_time: f.elements.semiannual_time.value || "16:49",
       yearly_enabled: f.elements.yearly_enabled.checked,
       yearly_time: f.elements.yearly_time.value || "16:50",
     };
@@ -151,13 +157,14 @@
     $("#notifUseCryptoWatch").onclick = () => { $("#notifForm").elements.crypto_symbols.value = (window.cryptoWatchlist?.() || []).join(", "); };
     $("#notifTest").onclick = () => action("test", () => "Pesan uji terkirim — cek Telegram Anda");
     let shownPeriod = null;
-    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan", quarterly: "kuartalan", yearly: "tahunan" };
+    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan", quarterly: "kuartalan", semiannual: "semesteran",
+                     yearly: "tahunan" };
     for (const id of SEND_BUTTONS) {
       const period = $(id).dataset.period;
       $(id).onclick = () => action(`report?period=${period}`, () => `Laporan ${PERIOD[period]} terkirim — cek Telegram Anda`);
     }
     for (const id of ["#notifReportPreview", "#notifWeeklyPreview", "#notifMonthlyPreview", "#notifQuarterlyPreview",
-                      "#notifYearlyPreview"]) {
+                      "#notifSemiannualPreview", "#notifYearlyPreview"]) {
       $(id).onclick = async () => {
         const box = $("#reportPreview"), period = $(id).dataset.period;
         if (!box.classList.contains("hidden") && shownPeriod === period) { box.classList.add("hidden"); return; }

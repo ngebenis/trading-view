@@ -336,7 +336,7 @@ Posisi: 10 lot · avg 9.050
 ```
 - Opsi "Hanya saat jam bursa" melewati pemindaian **saham** di luar jam perdagangan IDX.
 
-**📊 Laporan portofolio harian, mingguan & bulanan.** Di tab Notifikasi (grup *Laporan portofolio*):
+**📊 Laporan portofolio harian, mingguan, bulanan & tahunan.** Di tab Notifikasi (grup *Laporan portofolio*):
 - **Harian** — centang *Kirim laporan harian*, pilih jam (bawaan 16:15 WIB, opsi hanya Senin–Jumat). Berisi ekuitas
   akun simulasi saham beserta perubahannya sejak hari sebelumnya, kas, total P/L, tiap posisi (harga, perubahan hari
   ini, P/L), transaksi hari ini dan IHSG — ditambah ringkasan akun crypto bila dipakai.
@@ -347,6 +347,10 @@ Posisi: 10 lot · avg 9.050
   jam (bawaan 16:45 WIB). Merangkum bulan berjalan dibanding **akhir bulan lalu**: perubahan ekuitas, ekuitas
   **tertinggi & terendah** bulan ini, perubahan harga tiap posisi sejak akhir bulan lalu, terbaik/terburuk, transaksi
   bulan ini, dan IHSG bulan ini (crypto: perubahan sebulan tiap aset).
+- **Tahunan** — centang *Kirim laporan tahunan*, pilih jam (dikirim **31 Desember**, bawaan 16:50 WIB). Merangkum
+  tahun berjalan dibanding **akhir tahun lalu**: perubahan ekuitas, ekuitas tertinggi & terendah setahun, **return per
+  bulan** (dari catatan ekuitas akhir tiap bulan), perubahan harga tiap posisi setahun, terbaik/terburuk, transaksi
+  setahun, dan IHSG setahun (crypto: perubahan setahun tiap aset).
 - Ekuitas dicatat otomatis setiap hari pukul 16.00 WIB (dan setiap laporan dikirim) sebagai pembanding, walau laporan
   harian tidak diaktifkan (disimpan ±13 bulan). Pembanding mingguan baru lengkap setelah ±7 hari pencatatan, dan
   pembanding bulanan setelah melewati satu akhir bulan.
@@ -377,6 +381,18 @@ Posisi (2) · perubahan harga bulan ini:
 Terbaik: BBCA +13,13% · Terburuk: TLKM -5,00%
 Transaksi bulan ini: 2 beli, 0 jual · nilai Rp10.925.000
 IHSG: 7.123,45 (+1,76% bulan ini)
+```
+
+```
+🎆 Laporan tahunan portofolio — 2026
+01/01 s/d 31/12/2026 · dibanding akhir tahun lalu (31/12/2025)
+📈 Saham IDX — akun simulasi
+Ekuitas: Rp104.200.000 (+Rp4.200.000 / +4,20% sejak 31/12)
+Tertinggi Rp105.000.000 (15/06) · terendah Rp98.500.000 (20/03)
+Per bulan: Jan +2,00% · Feb -0,98% · Mar … · Des +0,40%
+Terbaik: TLKM +26,67% · Terburuk: BBCA -9,50%
+Transaksi tahun ini: 48 beli, 41 jual · nilai Rp612.000.000
+IHSG: 7.123,45 (-5,02% tahun ini)
 ```
 
 **🎯 Alert harga (target).** Di panel order (saham maupun crypto) isi *Target harga* lalu klik **Pasang**.
@@ -525,7 +541,7 @@ app/
   webhooks.py        Penerima webhook alert TradingView
   idx_vendors.py     Penyedia data IDX berbayar (Invezgo, GoAPI) + cadangan otomatis
   price_alerts.py    Alert harga (target) ke Telegram untuk saham & crypto
-  daily_report.py    Laporan portofolio harian, mingguan & bulanan ke Telegram
+  daily_report.py    Laporan portofolio harian, mingguan, bulanan & tahunan ke Telegram
   price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
   binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
@@ -570,8 +586,8 @@ tests/               Unit & API test
 | GET | `/api/webhooks` | Status, template pesan & log alert |
 | PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
-| POST | `/api/notifications/report?period=daily\|weekly\|monthly` | Kirim laporan portofolio sekarang |
-| GET | `/api/notifications/report/preview?period=daily\|weekly\|monthly` | Contoh isi laporan (HTML Telegram) |
+| POST | `/api/notifications/report?period=daily\|weekly\|monthly\|yearly` | Kirim laporan portofolio sekarang |
+| GET | `/api/notifications/report/preview?period=daily\|weekly\|monthly\|yearly` | Contoh isi laporan (HTML Telegram) |
 | GET/POST | `/api/alerts` | Daftar / pasang alert harga (`symbol`, `target`, `note`, `repeat`) |
 | DELETE | `/api/alerts/{id}` | Hapus alert |
 | POST | `/api/alerts/{id}/rearm` · `/api/alerts/check` | Aktifkan lagi alert / periksa sekarang |

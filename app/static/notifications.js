@@ -1,6 +1,7 @@
 // Tab Notifikasi Telegram. Memakai helper global dari app.js: $, api, cleanSymbol, escapeHtml, state.
 (() => {
   let initialized = false;
+  const SEND_BUTTONS = ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend", "#notifYearlySend"];
   let lastStatus = null;
 
   const msg = (text, ok = true) => {
@@ -31,6 +32,8 @@
     f.elements.monthly_enabled.checked = c.monthly_enabled;
     f.elements.monthly_day.value = String(c.monthly_day);
     f.elements.monthly_time.value = c.monthly_time;
+    f.elements.yearly_enabled.checked = c.yearly_enabled;
+    f.elements.yearly_time.value = c.yearly_time;
     f.elements.bot_token.disabled = st.token_from_env;
     f.elements.chat_id.disabled = st.chat_id_from_env;
     $("#tokenHint").textContent = st.token_from_env ? "Diatur lewat TELEGRAM_BOT_TOKEN di .env" : "Disimpan lokal di database data/app.db";
@@ -56,8 +59,9 @@
         (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "") +
         (st.report_schedule ? ` · laporan harian ${st.report_schedule}` : "") +
         (st.weekly_schedule ? ` · laporan mingguan ${st.weekly_schedule}` : "") +
-        (st.monthly_schedule ? ` · laporan bulanan ${st.monthly_schedule}` : "");
-    for (const id of ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend"]) $(id).disabled = !st.configured;
+        (st.monthly_schedule ? ` · laporan bulanan ${st.monthly_schedule}` : "") +
+        (st.yearly_schedule ? ` · laporan tahunan ${st.yearly_schedule}` : "");
+    for (const id of SEND_BUTTONS) $(id).disabled = !st.configured;
 
     const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL",
                      MOVE: "GERAK 24J", TARGET: "TARGET", ORDER: "ORDER", REPORT: "LAPORAN" };
@@ -96,6 +100,8 @@
       monthly_enabled: f.elements.monthly_enabled.checked,
       monthly_day: Number(f.elements.monthly_day.value),
       monthly_time: f.elements.monthly_time.value || "16:45",
+      yearly_enabled: f.elements.yearly_enabled.checked,
+      yearly_time: f.elements.yearly_time.value || "16:50",
     };
     if (!f.elements.bot_token.disabled) body.bot_token = f.elements.bot_token.value;
     if (!f.elements.chat_id.disabled) body.chat_id = f.elements.chat_id.value;
@@ -140,12 +146,12 @@
     $("#notifUseCryptoWatch").onclick = () => { $("#notifForm").elements.crypto_symbols.value = (window.cryptoWatchlist?.() || []).join(", "); };
     $("#notifTest").onclick = () => action("test", () => "Pesan uji terkirim — cek Telegram Anda");
     let shownPeriod = null;
-    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan" };
-    for (const id of ["#notifReportSend", "#notifWeeklySend", "#notifMonthlySend"]) {
+    const PERIOD = { daily: "harian", weekly: "mingguan", monthly: "bulanan", yearly: "tahunan" };
+    for (const id of SEND_BUTTONS) {
       const period = $(id).dataset.period;
       $(id).onclick = () => action(`report?period=${period}`, () => `Laporan ${PERIOD[period]} terkirim — cek Telegram Anda`);
     }
-    for (const id of ["#notifReportPreview", "#notifWeeklyPreview", "#notifMonthlyPreview"]) {
+    for (const id of ["#notifReportPreview", "#notifWeeklyPreview", "#notifMonthlyPreview", "#notifYearlyPreview"]) {
       $(id).onclick = async () => {
         const box = $("#reportPreview"), period = $(id).dataset.period;
         if (!box.classList.contains("hidden") && shownPeriod === period) { box.classList.add("hidden"); return; }

@@ -19,7 +19,7 @@
     f.elements.notify_trades.checked = c.notify_trades;
     f.elements.bot_token.disabled = st.token_from_env;
     f.elements.chat_id.disabled = st.chat_id_from_env;
-    $("#tokenHint").textContent = st.token_from_env ? "Diatur lewat TELEGRAM_BOT_TOKEN di .env" : "Disimpan lokal di data/notifications.json";
+    $("#tokenHint").textContent = st.token_from_env ? "Diatur lewat TELEGRAM_BOT_TOKEN di .env" : "Disimpan lokal di database data/app.db";
     $("#chatHint").textContent = st.chat_id_from_env ? "Diatur lewat TELEGRAM_CHAT_ID di .env" : "";
     $("#notifGuide").open = !st.configured;
   }

@@ -353,7 +353,7 @@
         <label class="check"><input name="notify_trades" type="checkbox"> Kirim juga transaksi bot auto-trading (saham &amp; crypto)</label>
         <label class="check"><input name="notify_orders" type="checkbox"> Kirim order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan)</label>
         <fieldset class="wide report-set">
-          <legend>Laporan portofolio (harian, mingguan, bulanan, kuartalan &amp; tahunan)</legend>
+          <legend>Laporan portofolio (harian, mingguan, bulanan, kuartalan, semesteran &amp; tahunan)</legend>
           <label class="check"><input name="report_enabled" type="checkbox"> Kirim laporan harian</label>
           <label>Jam (WIB)<input name="report_time" type="time" step="60"></label>
           <label class="check"><input name="report_weekdays_only" type="checkbox"> Hanya Senin–Jumat</label>
@@ -422,6 +422,13 @@
           <span class="report-actions">
             <button id="notifQuarterlyPreview" type="button" data-period="quarterly">Lihat contoh</button>
             <button id="notifQuarterlySend" type="button" data-period="quarterly">Kirim sekarang</button>
+          </span>
+          <span class="report-break"></span>
+          <label class="check"><input name="semiannual_enabled" type="checkbox"> Kirim laporan semesteran (30 Juni &amp; 31 Desember)</label>
+          <label>Jam (WIB)<input name="semiannual_time" type="time" step="60"></label>
+          <span class="report-actions">
+            <button id="notifSemiannualPreview" type="button" data-period="semiannual">Lihat contoh</button>
+            <button id="notifSemiannualSend" type="button" data-period="semiannual">Kirim sekarang</button>
           </span>
           <span class="report-break"></span>
           <label class="check"><input name="yearly_enabled" type="checkbox"> Kirim laporan tahunan (31 Desember)</label>

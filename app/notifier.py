@@ -219,6 +219,9 @@ class WatchConfig:
     # Laporan kuartalan: hari terakhir tiap kuartal, jam (WIB).
     quarterly_enabled: bool = False
     quarterly_time: str = "16:48"
+    # Laporan semesteran: 30 Juni & 31 Desember, jam (WIB).
+    semiannual_enabled: bool = False
+    semiannual_time: str = "16:49"
     # Laporan tahunan: setiap 31 Desember, jam (WIB).
     yearly_enabled: bool = False
     yearly_time: str = "16:50"
@@ -245,7 +248,8 @@ class WatchConfig:
         if not 0 <= self.crypto_move_pct <= 100:
             errors.append("Ambang gerakan crypto harus 0–100%")
         for attr, label in (("report_time", "harian"), ("weekly_time", "mingguan"), ("monthly_time", "bulanan"),
-                            ("quarterly_time", "kuartalan"), ("yearly_time", "tahunan")):
+                            ("quarterly_time", "kuartalan"),
+                            ("semiannual_time", "semesteran"), ("yearly_time", "tahunan")):
             try:
                 hh, mm = (int(x) for x in str(getattr(self, attr)).split(":"))
                 if not (0 <= hh < 24 and 0 <= mm < 60):
@@ -537,6 +541,8 @@ class SignalWatcher:
             "monthly_last_sent": self.reporter.last_monthly_sent if self.reporter else None,
             "quarterly_schedule": self.reporter.next_quarterly() if self.reporter else None,
             "quarterly_last_sent": self.reporter.last_quarterly_sent if self.reporter else None,
+            "semiannual_schedule": self.reporter.next_semiannual() if self.reporter else None,
+            "semiannual_last_sent": self.reporter.last_semiannual_sent if self.reporter else None,
             "yearly_schedule": self.reporter.next_yearly() if self.reporter else None,
             "yearly_last_sent": self.reporter.last_yearly_sent if self.reporter else None,
         }

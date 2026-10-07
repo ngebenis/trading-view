@@ -41,6 +41,16 @@ def register_crypto(app: FastAPI, settings: Settings, db, watcher=None, http=Non
         watcher.crypto_provider = provider  # sinyal crypto di notifikasi Telegram
         bot.listeners.append(watcher.on_autotrader_log)  # notifikasi transaksi lewat Telegram yang sama
 
+    def notify_order(b, order: CryptoOrder, event: str) -> None:
+        """Telegram untuk order manual crypto (diatur di tab Notifikasi)."""
+        if watcher is None:
+            return
+        pos = b.positions.get(order.symbol) if isinstance(b, CryptoPaperBroker) else None
+        watcher.notify_order(order.to_dict(), event, "crypto", b.display_name, pos)
+
+    for _b in brokers.values():
+        _b.on_fill.append(lambda o, b=_b: notify_order(b, o, "filled"))
+
     def get_broker(name: str):
         if name not in brokers:
             raise HTTPException(404, f"Akun crypto '{name}' tidak dikenal (paper / testnet / binance)")
@@ -170,16 +180,22 @@ def register_crypto(app: FastAPI, settings: Settings, db, watcher=None, http=Non
                                          f"{settings.crypto_max_position_pct:g}% ekuitas ({cap:,.2f})")
         order = CryptoOrder(sym, req.side, qty, req.order_type, req.limit_price)
         try:
-            return b.place_order(order, quote.price, rules).to_dict()
+            b.place_order(order, quote.price, rules)
         except BrokerNotAvailable as exc:
             raise HTTPException(503, str(exc))
         except BrokerError as exc:
+            notify_order(b, order, "placed")  # ditolak, beserta alasannya
             raise HTTPException(400, str(exc))
+        notify_order(b, order, "placed")
+        return order.to_dict()
 
     @app.delete("/api/crypto/orders/{order_id}")
     def crypto_cancel(order_id: str, broker: str = "paper"):
         try:
-            return get_broker(broker).cancel_order(order_id).to_dict()
+            b = get_broker(broker)
+            order = b.cancel_order(order_id)
+            notify_order(b, order, "cancelled")
+            return order.to_dict()
         except BrokerNotAvailable as exc:
             raise HTTPException(503, str(exc))
         except BrokerError as exc:

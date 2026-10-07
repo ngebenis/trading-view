@@ -20,6 +20,7 @@ class PaperBroker(Broker):
         self.buy_fee = buy_fee_pct / 100
         self.sell_fee = sell_fee_pct / 100
         self._lock = threading.Lock()
+        self.on_fill: list = []  # dipanggil untuk tiap order limit yang terisi belakangan (mis. notifikasi)
         self._load()
 
     # ---- persistence -------------------------------------------------
@@ -134,6 +135,12 @@ class PaperBroker(Broker):
                     filled.append(o)
             if filled:
                 self._save(filled)
+        for o in filled:
+            for listener in self.on_fill:
+                try:
+                    listener(o)
+                except Exception:  # notifikasi gagal tidak boleh mengganggu pencocokan order
+                    pass
         return filled
 
     def cancel_order(self, order_id: str) -> Order:

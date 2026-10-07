@@ -100,6 +100,7 @@ class CryptoBroker:
         self.db = db
         self.clock = clock
         self._lock = threading.Lock()
+        self.on_fill: list = []  # dipanggil untuk tiap order limit yang terisi belakangan
         self._orders: list[CryptoOrder] = [CryptoOrder.from_dict(o) for o in db.load_crypto_orders(self.name)] \
             if db is not None else []
 
@@ -122,6 +123,14 @@ class CryptoBroker:
 
     def bot_positions(self) -> dict[str, dict]:
         return bot_positions(self._orders)
+
+    def _fire_fills(self, filled) -> None:
+        for o in filled:
+            for listener in self.on_fill:
+                try:
+                    listener(o)
+                except Exception:
+                    pass
 
 
 class CryptoPaperBroker(CryptoBroker):
@@ -232,6 +241,7 @@ class CryptoPaperBroker(CryptoBroker):
                     filled.append(o)
             if filled:
                 self._save(filled)
+        self._fire_fills(filled)
         return filled
 
     def cancel_order(self, order_id: str) -> CryptoOrder:
@@ -365,6 +375,7 @@ class BinanceBroker(CryptoBroker):
             self._save_orders([o])
             if o.status == OrderStatus.FILLED:
                 filled.append(o)
+        self._fire_fills(filled)
         return filled
 
     def match_open_orders(self, prices: dict[str, float]) -> list[CryptoOrder]:

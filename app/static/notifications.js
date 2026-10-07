@@ -20,6 +20,7 @@
     for (const k of ["interval_seconds", "min_buy_score", "max_sell_score"]) f.elements[k].value = c[k];
     f.elements.market_hours_only.checked = c.market_hours_only;
     f.elements.notify_trades.checked = c.notify_trades;
+    f.elements.notify_orders.checked = c.notify_orders;
     f.elements.bot_token.disabled = st.token_from_env;
     f.elements.chat_id.disabled = st.chat_id_from_env;
     $("#tokenHint").textContent = st.token_from_env ? "Diatur lewat TELEGRAM_BOT_TOKEN di .env" : "Disimpan lokal di database data/app.db";
@@ -45,7 +46,7 @@
         (st.next_run ? ` · berikutnya ±${time(st.next_run)}` : "") + (active.length ? ` · sinyal aktif: ${active.join(", ")}` : "");
 
     const labels = { BUY: "BELI", SELL: "JUAL", TRADE: "BOT", TEST: "UJI", INFO: "INFO", WARN: "PERINGATAN", ERROR: "GAGAL",
-                     MOVE: "GERAK 24J", TARGET: "TARGET" };
+                     MOVE: "GERAK 24J", TARGET: "TARGET", ORDER: "ORDER" };
     $("#notifLog").innerHTML = `<tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Keterangan</th><th>Telegram</th></tr>` +
       (st.history.length ? st.history.map((h) => `<tr><td>${new Date(h.time * 1000).toLocaleString("id-ID")}</td>
         <td class="kind kind-${h.kind}">${labels[h.kind] || h.kind}</td><td>${escapeHtml(h.symbol)}</td>
@@ -70,6 +71,7 @@
       max_sell_score: Number(f.elements.max_sell_score.value),
       market_hours_only: f.elements.market_hours_only.checked,
       notify_trades: f.elements.notify_trades.checked,
+      notify_orders: f.elements.notify_orders.checked,
     };
     if (!f.elements.bot_token.disabled) body.bot_token = f.elements.bot_token.value;
     if (!f.elements.chat_id.disabled) body.chat_id = f.elements.chat_id.value;

@@ -41,10 +41,12 @@
     keep("market", m);
     document.querySelectorAll(".idx-only").forEach((el) => el.classList.toggle("hidden", m !== "idx"));
     document.querySelectorAll(".crypto-only").forEach((el) => el.classList.toggle("hidden", m !== "crypto"));
+    document.querySelectorAll(".us-only").forEach((el) => el.classList.toggle("hidden", m !== "us"));
     document.querySelectorAll("#marketSeg button").forEach((b) => b.classList.toggle("active", b.dataset.market === m));
-    document.title = m === "crypto" ? "Crypto · IDX Trading View" : "IDX Trading View";
+    document.title = m === "crypto" ? "Crypto · IDX Trading View" : m === "us" ? "Saham AS · IDX Trading View" : "IDX Trading View";
     window.liveResubscribe?.();
     if (m === "crypto") start(); else stop();
+    window.dispatchEvent(new CustomEvent("market-changed", { detail: m }));
   }
 
   // ---- watchlist ----------------------------------------------------------
@@ -485,6 +487,7 @@
   window.cryptoWatchlist = () => st.watch;
   window.cryptoCurrent = () => ({ symbol: st.symbol, price: st.quote?.symbol === st.symbol ? st.quote.price : null,
                                   quote: st.quote?.quote_asset || "" });
+  window.setMarket = setMarket;
   document.querySelectorAll("#marketSeg button").forEach((b) => b.onclick = () => setMarket(b.dataset.market));
-  setMarket(pref("market", "idx") === "crypto" ? "crypto" : "idx");
+  setMarket(["crypto", "us"].includes(pref("market", "idx")) ? pref("market", "idx") : "idx");
 })();

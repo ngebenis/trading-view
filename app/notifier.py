@@ -158,7 +158,18 @@ def format_order(o: dict, event: str, market: str, account: str, position: dict 
     key = "filled" if event == "filled" else ("CANCELLED" if event == "cancelled" else o["status"])
     icon, label = ORDER_EVENT.get(key, ("📝", o["status"]))
     price = o.get("fill_price") or o.get("limit_price")
-    if market == "crypto":
+    if market == "us" and key == "OPEN" and o["order_type"] == "MARKET":
+        icon, label = "⏳", "Order diterima, menunggu bursa AS buka"
+    if market == "us":
+        from .crypto import qty_str, usdt
+        qty = o.get("filled_qty") or o.get("quantity")
+        amount = f"{qty_str(qty).replace('.', ',')} saham" if qty else f"${usdt(o.get('notional'))}"
+        at = f" @ ${usdt(price)}" if price else ""
+        value = f" (${usdt(qty * price)})" if price and qty else ""
+        fee = ""
+        links = (f'<a href="https://www.tradingview.com/symbols/{sym.replace(".", "-")}/">TradingView</a> · '
+                 f'<a href="https://finance.yahoo.com/quote/{sym.replace(".", "-")}">Yahoo Finance</a>')
+    elif market == "crypto":
         from .crypto import price_str, qty_str, usdt
         base, quote = split_pair(sym) or (sym, "")
         qty = o.get("filled_qty") or o["quantity"]

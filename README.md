@@ -324,6 +324,16 @@ Cara kerja:
   restart server tidak memicu pesan ganda.
 - Bila pengiriman gagal (mis. internet putus), sinyal dicoba kirim lagi di pemindaian berikutnya.
 - Opsional: setiap transaksi bot auto-trading (beli/jual, stop-loss, take-profit) ikut dikirim.
+- **Order manual** (saham & crypto, semua akun) dikabarkan saat terisi, saat order limit dipasang / terisi belakangan,
+  saat ditolak (beserta alasannya) dan saat dibatalkan — lengkap dengan harga, nilai, fee, akun dan posisi setelahnya.
+  Bisa dimatikan lewat "Kirim order manual". Pesan dikirim di latar belakang sehingga order tidak jadi lambat.
+
+```
+🛒 Order manual — BELI BBCA
+✅ Terisi: 10 lot @ 9.050 (Rp9.050.000) · fee Rp13.575
+Tipe market · akun Paper Trading (Simulasi)
+Posisi: 10 lot · avg 9.050
+```
 - Opsi "Hanya saat jam bursa" melewati pemindaian **saham** di luar jam perdagangan IDX.
 
 **🎯 Alert harga (target).** Di panel order (saham maupun crypto) isi *Target harga* lalu klik **Pasang**.

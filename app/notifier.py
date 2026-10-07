@@ -6,6 +6,7 @@
 """
 import html
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field, fields
@@ -144,6 +145,51 @@ def format_crypto_move(symbol: str, quote, threshold: float) -> str:
     ])
 
 
+ORDER_EVENT = {  # (ikon, judul) per kejadian/status
+    "FILLED": ("✅", "Terisi"), "OPEN": ("⏳", "Order limit dipasang"), "REJECTED": ("❌", "Ditolak"),
+    "CANCELLED": ("🚫", "Dibatalkan"), "filled": ("✅", "Order limit terisi"),
+}
+
+
+def format_order(o: dict, event: str, market: str, account: str, position: dict | None = None) -> str:
+    """Pesan order manual. `o` = Order/CryptoOrder.to_dict(); event = placed / filled / cancelled."""
+    sym = o["symbol"]
+    side = "BELI" if o["side"] == "BUY" else "JUAL"
+    key = "filled" if event == "filled" else ("CANCELLED" if event == "cancelled" else o["status"])
+    icon, label = ORDER_EVENT.get(key, ("📝", o["status"]))
+    price = o.get("fill_price") or o.get("limit_price")
+    if market == "crypto":
+        from .crypto import price_str, qty_str, usdt
+        base, quote = split_pair(sym) or (sym, "")
+        qty = o.get("filled_qty") or o["quantity"]
+        amount = f"{qty_str(qty)} {base}".replace(".", ",")
+        at = f" @ {price_str(price)} {quote}" if price else ""
+        value = f" ({usdt(qty * price)} {quote})" if price else ""
+        fee = f" · fee {qty_str(o['fee']).replace('.', ',')} {o.get('fee_asset', '')}".rstrip() if o.get("fee") else ""
+        links = crypto_links(sym)
+    else:
+        amount = f"{o['lots']} lot"
+        at = f" @ {rupiah(price)}" if price else ""
+        value = f" (Rp{rupiah(o['lots'] * 100 * price)})" if price else ""
+        fee = f" · fee Rp{rupiah(o['fee'])}" if o.get("fee") else ""
+        links = stock_links(sym)
+    lines = [f"{'🛒' if o['side'] == 'BUY' else '💰'} <b>Order manual — {side} {html.escape(sym)}</b>",
+             f"{icon} {label}: {amount}{at}{value}{fee if key in ('FILLED', 'filled') else ''}",
+             f"Tipe {o['order_type'].lower()} · akun {html.escape(account)}"]
+    if key == "REJECTED" and o.get("message"):
+        lines.append(f"Alasan: {html.escape(o['message'])}")
+    if position and key in ("FILLED", "filled"):
+        if market == "crypto":
+            from .crypto import price_str, qty_str
+            lines.append(f"Posisi: {qty_str(position['quantity']).replace('.', ',')} {base} · avg {price_str(position['avg_price'])}")
+        else:
+            lines.append(f"Posisi: {position['shares'] // 100} lot · avg {rupiah(position['avg_price'])}")
+    elif key in ("FILLED", "filled") and o["side"] == "SELL" and market == "idx" and position is None:
+        lines.append("Posisi: habis terjual")
+    lines += ["", links]
+    return "\n".join(lines)
+
+
 # ---- pemantau sinyal -------------------------------------------------------
 @dataclass
 class WatchConfig:
@@ -156,6 +202,7 @@ class WatchConfig:
     max_sell_score: int = -2
     market_hours_only: bool = False
     notify_trades: bool = True  # kirim juga transaksi bot auto-trading
+    notify_orders: bool = True  # kirim order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan)
     notify_limits: bool = True  # kirim saat saham menyentuh ARA / ARB (sekali per hari per saham)
     # Crypto (Binance): pasar 24 jam, jadi tidak terpengaruh "hanya saat jam bursa".
     crypto_symbols: list[str] = field(default_factory=list)
@@ -206,6 +253,8 @@ class SignalWatcher:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self.sync_send = False  # True: kirim langsung (tes); False: di thread latar belakang
+        self._executor: ThreadPoolExecutor | None = None
         self.config = self._load()
 
     # ---- konfigurasi & penyimpanan -----------------------------------
@@ -403,6 +452,32 @@ class SignalWatcher:
         when = datetime.fromtimestamp(self.clock(), WIB).strftime("%d/%m/%Y %H:%M")
         self.telegram().send(self.chat_id, f"✅ <b>IDX Trading View</b>\nNotifikasi Telegram aktif ({when} WIB).")
         self._record("TEST", "-", "Pesan uji terkirim", sent=True)
+
+    def _dispatch(self, fn) -> None:
+        """Jalankan pengiriman tanpa menahan request (order tetap cepat walau Telegram lambat)."""
+        if self.sync_send:
+            fn()
+            return
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="telegram")
+        self._executor.submit(fn)
+
+    def notify_order(self, order: dict, event: str, market: str, account: str, position: dict | None = None) -> None:
+        """Kabarkan order manual (saham atau crypto) bila diaktifkan & Telegram sudah diatur."""
+        if not self.config.notify_orders or not (self.token and self.chat_id):
+            return
+        if order.get("source", "manual") != "manual":
+            return  # order bot & webhook punya notifikasinya sendiri
+        text = format_order(order, event, market, account, position)
+
+        def send():
+            ok, err = self._send(text)
+            side = "BELI" if order["side"] == "BUY" else "JUAL"
+            what = {"filled": "limit terisi", "cancelled": "dibatalkan"}.get(event) or {
+                "FILLED": "terisi", "OPEN": "limit dipasang", "REJECTED": "ditolak"}.get(order["status"], order["status"])
+            self._record("ORDER" if ok else "ERROR", order["symbol"],
+                         f"Order manual {side} {what}" if ok else f"Notifikasi order gagal: {err}", sent=ok)
+        self._dispatch(send)
 
     def on_autotrader_log(self, entry: dict) -> None:
         """Dipanggil AutoTrader untuk setiap entri log; hanya transaksi yang diteruskan."""

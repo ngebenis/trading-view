@@ -118,6 +118,13 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         return await call_next(request)
     brokers: dict[str, Broker] = {b.name: b for b in (paper, StockbitBroker(), PluangBroker())}
 
+    def notify_order(b, order: Order, event: str) -> None:
+        """Telegram untuk order manual saham (diatur di tab Notifikasi)."""
+        pos = b.positions.get(order.symbol) if isinstance(b, PaperBroker) else None
+        watcher.notify_order(order.to_dict(), event, "idx", b.display_name, pos)
+
+    paper.on_fill.append(lambda o: notify_order(paper, o, "filled"))
+
     def get_broker(name: str) -> Broker:
         if name not in brokers:
             raise HTTPException(404, f"Broker '{name}' tidak dikenal")
@@ -279,17 +286,24 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         order = Order(req.symbol, req.side, req.lots, req.order_type, req.limit_price)
         try:
             if isinstance(b, PaperBroker):
-                return b.place_order(order, market, limits).to_dict()
-            return b.place_order(order, market).to_dict()
+                b.place_order(order, market, limits)
+            else:
+                b.place_order(order, market)
+            notify_order(b, order, "placed")
+            return order.to_dict()
         except BrokerNotAvailable as exc:
             raise HTTPException(503, str(exc))
         except BrokerError as exc:
+            notify_order(b, order, "placed")  # ditolak, beserta alasannya
             raise HTTPException(400, str(exc))
 
     @app.delete("/api/orders/{order_id}")
     def cancel(order_id: str, broker: str = "paper"):
         try:
-            return get_broker(broker).cancel_order(order_id).to_dict()
+            b = get_broker(broker)
+            order = b.cancel_order(order_id)
+            notify_order(b, order, "cancelled")
+            return order.to_dict()
         except BrokerNotAvailable as exc:
             raise HTTPException(503, str(exc))
         except BrokerError as exc:

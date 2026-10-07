@@ -336,15 +336,20 @@ Posisi: 10 lot · avg 9.050
 ```
 - Opsi "Hanya saat jam bursa" melewati pemindaian **saham** di luar jam perdagangan IDX.
 
-**📊 Laporan portofolio harian & mingguan.** Di tab Notifikasi (grup *Laporan portofolio*):
+**📊 Laporan portofolio harian, mingguan & bulanan.** Di tab Notifikasi (grup *Laporan portofolio*):
 - **Harian** — centang *Kirim laporan harian*, pilih jam (bawaan 16:15 WIB, opsi hanya Senin–Jumat). Berisi ekuitas
   akun simulasi saham beserta perubahannya sejak hari sebelumnya, kas, total P/L, tiap posisi (harga, perubahan hari
   ini, P/L), transaksi hari ini dan IHSG — ditambah ringkasan akun crypto bila dipakai.
 - **Mingguan** — centang *Kirim laporan mingguan*, pilih hari & jam (bawaan Jumat 16:30 WIB). Merangkum 7 hari
   terakhir: perubahan ekuitas sejak ±7 hari lalu, perubahan harga 7 hari tiap posisi, saham **terbaik/terburuk**,
   transaksi 7 hari, dan perubahan IHSG 7 hari (crypto: perubahan 7 hari tiap aset).
+- **Bulanan** — centang *Kirim laporan bulanan*, pilih tanggal (bawaan **hari terakhir bulan**, atau tanggal 1–28) &
+  jam (bawaan 16:45 WIB). Merangkum bulan berjalan dibanding **akhir bulan lalu**: perubahan ekuitas, ekuitas
+  **tertinggi & terendah** bulan ini, perubahan harga tiap posisi sejak akhir bulan lalu, terbaik/terburuk, transaksi
+  bulan ini, dan IHSG bulan ini (crypto: perubahan sebulan tiap aset).
 - Ekuitas dicatat otomatis setiap hari pukul 16.00 WIB (dan setiap laporan dikirim) sebagai pembanding, walau laporan
-  harian tidak diaktifkan. Pembanding mingguan baru lengkap setelah ±7 hari pencatatan.
+  harian tidak diaktifkan (disimpan ±13 bulan). Pembanding mingguan baru lengkap setelah ±7 hari pencatatan, dan
+  pembanding bulanan setelah melewati satu akhir bulan.
 - Masing-masing dikirim sekali per jadwal (bila server baru menyala setelah jamnya, tetap dikirim hari itu), dan
   punya tombol **Lihat contoh** & **Kirim sekarang**.
 
@@ -358,6 +363,20 @@ Posisi (2) · perubahan harga 7 hari:
 Terbaik: BBCA +6,47% · Terburuk: TLKM -5,00%
 Transaksi 7 hari: 2 beli, 0 jual · nilai Rp10.925.000
 IHSG: 7.123,45 (+1,76% dalam 7 hari)
+```
+
+```
+🗓️ Laporan bulanan portofolio — Oktober 2026
+01/10 s/d 31/10/2026 · dibanding akhir bulan lalu (30/09)
+📈 Saham IDX — akun simulasi
+Ekuitas: Rp101.400.000 (+Rp2.400.000 / +2,42% sejak 30/09)
+Tertinggi Rp101.500.000 (15/10) · terendah Rp98.500.000 (20/10)
+Posisi (2) · perubahan harga bulan ini:
+• BBCA 10 lot · 9.050 (+13,13%) · P/L +Rp500.000 (+5,85%)
+• TLKM 5 lot · 3.800 (-5,00%) · P/L -Rp25.000 (-1,30%)
+Terbaik: BBCA +13,13% · Terburuk: TLKM -5,00%
+Transaksi bulan ini: 2 beli, 0 jual · nilai Rp10.925.000
+IHSG: 7.123,45 (+1,76% bulan ini)
 ```
 
 **🎯 Alert harga (target).** Di panel order (saham maupun crypto) isi *Target harga* lalu klik **Pasang**.
@@ -506,7 +525,7 @@ app/
   webhooks.py        Penerima webhook alert TradingView
   idx_vendors.py     Penyedia data IDX berbayar (Invezgo, GoAPI) + cadangan otomatis
   price_alerts.py    Alert harga (target) ke Telegram untuk saham & crypto
-  daily_report.py    Laporan portofolio harian & mingguan ke Telegram
+  daily_report.py    Laporan portofolio harian, mingguan & bulanan ke Telegram
   price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
   binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
   crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
@@ -551,8 +570,8 @@ tests/               Unit & API test
 | GET | `/api/webhooks` | Status, template pesan & log alert |
 | PUT | `/api/webhooks/config` | Aktif/nonaktif, aksi, ukuran order, simbol yang diizinkan |
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
-| POST | `/api/notifications/report?period=daily\|weekly` | Kirim laporan portofolio sekarang |
-| GET | `/api/notifications/report/preview?period=daily\|weekly` | Contoh isi laporan (HTML Telegram) |
+| POST | `/api/notifications/report?period=daily\|weekly\|monthly` | Kirim laporan portofolio sekarang |
+| GET | `/api/notifications/report/preview?period=daily\|weekly\|monthly` | Contoh isi laporan (HTML Telegram) |
 | GET/POST | `/api/alerts` | Daftar / pasang alert harga (`symbol`, `target`, `note`, `repeat`) |
 | DELETE | `/api/alerts/{id}` | Hapus alert |
 | POST | `/api/alerts/{id}/rearm` · `/api/alerts/check` | Aktifkan lagi alert / periksa sekarang |

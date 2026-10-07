@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -174,3 +174,64 @@ def test_weekly_api_and_validation(tmp_path):
     assert c.put("/api/notifications/config", json={"weekly_day": 7}).status_code == 400
     st = c.post("/api/notifications/report?period=weekly").json()
     assert st["history"][0]["message"] == "Laporan mingguan portofolio terkirim" and st["weekly_last_sent"]
+
+
+SAT_3110 = datetime(2026, 10, 31, 16, 45, tzinfo=WIB).timestamp()
+
+
+class MonthHistory(Prices):
+    """Candle harian 1/9 … 31/10: penutupan akhir September = `sep_close`, Oktober = harga sekarang."""
+
+    def __init__(self, sep_close, **p):
+        super().__init__(**p)
+        self.sep_close = sep_close
+
+    def candles(self, symbol, range_="3mo", interval="1d"):
+        from app.market_data import Candle
+        out = []
+        for i in range(61):
+            d = datetime(2026, 9, 1, 9, 0, tzinfo=WIB) + timedelta(days=i)
+            close = self.sep_close[symbol] if d.month == 9 else self.p[symbol][0]
+            out.append(Candle(int(d.timestamp()), close, close, close, close, 0))
+        return out
+
+
+def test_monthly_schedule_and_content(env):
+    from app.daily_report import signed_rp
+    rep, watcher, paper, _, _, tg, clock = env
+    rep.provider = MonthHistory({"BBCA": 8000, "TLKM": 4000, "IHSG": 7000.0},
+                                BBCA=(9050, 9000), TLKM=(3800, 3850), IHSG=(7123.45, 7100.0))
+    paper.place_order(Order("TLKM", Side.BUY, 5, OrderType.MARKET, created_at=clock["t"]), 3850)
+    watcher.update_config({"report_enabled": False, "monthly_enabled": True})
+    assert rep.next_monthly() == "hari terakhir tiap bulan 16:45 WIB"
+    rep._save_snapshot("idx", "2026-09-30", 99_000_000)   # pembanding: akhir bulan lalu
+    rep._save_snapshot("idx", "2026-10-15", 101_500_000)  # tertinggi bulan ini
+    rep._save_snapshot("idx", "2026-10-20", 98_500_000)   # terendah bulan ini
+    clock["t"] = SAT_3110 - 86400  # 30/10: bukan hari terakhir
+    assert not rep.monthly_due()
+    clock["t"] = SAT_3110
+    assert [e["message"] for e in rep.run_due()] == ["Laporan bulanan portofolio terkirim"]
+    text = tg.sent[-1]["text"]
+    assert "Laporan bulanan portofolio — Oktober 2026" in text and "01/10 s/d 31/10/2026" in text
+    assert "dibanding akhir bulan lalu (30/09)" in text
+    equity = paper.account({"BBCA": 9050, "TLKM": 3800})["equity"]
+    assert f"({signed_rp(equity - 99_000_000)} / " in text and "sejak 30/09)" in text
+    assert "Tertinggi Rp101.500.000 (15/10) · terendah Rp98.500.000 (20/10)" in text
+    assert "perubahan harga bulan ini" in text and "• BBCA 10 lot · 9.050 (+13,13%)" in text
+    assert "Terbaik: BBCA +13,13% · Terburuk: TLKM -5,00%" in text
+    assert "Transaksi bulan ini: 2 beli, 0 jual" in text and "IHSG: 7.123,45 (+1,76% bulan ini)" in text
+    assert rep.run_due() == []  # sekali per bulan
+    watcher.update_config({"monthly_day": 15})
+    assert rep.next_monthly() == "tanggal 15 tiap bulan 16:45 WIB" and not rep.monthly_due()
+
+
+def test_monthly_api_and_validation(tmp_path):
+    tg = FakeTelegram()
+    c = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider(), telegram_http=tg.client()))
+    assert "Laporan bulanan portofolio" in c.get("/api/notifications/report/preview?period=monthly").json()["text"]
+    st = c.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "monthly_enabled": True,
+                                                  "monthly_day": 1, "monthly_time": "8:30"}).json()
+    assert st["monthly_schedule"] == "tanggal 1 tiap bulan 08:30 WIB"
+    assert c.put("/api/notifications/config", json={"monthly_day": 29}).status_code == 400
+    st = c.post("/api/notifications/report?period=monthly").json()
+    assert st["history"][0]["message"] == "Laporan bulanan portofolio terkirim" and st["monthly_last_sent"]

@@ -1,16 +1,19 @@
-"""Laporan portofolio ke Telegram: harian dan mingguan (akun simulasi saham IDX, plus crypto).
+"""Laporan portofolio ke Telegram: harian, mingguan dan bulanan (akun simulasi saham IDX, plus crypto).
 
 - Harian  : jam `report_time` (WIB, bawaan 16:15 — setelah bursa tutup), opsional hanya Senin–Jumat.
 - Mingguan: hari `weekly_day` (0 = Senin … 6 = Minggu, bawaan Jumat) jam `weekly_time` (bawaan 16:30);
-            merangkum 7 hari terakhir: perubahan ekuitas, transaksi, perubahan harga tiap posisi,
-            saham terbaik/terburuk, dan IHSG.
+            merangkum 7 hari terakhir.
+- Bulanan : tanggal `monthly_day` (0 = hari terakhir bulan, atau 1–28) jam `monthly_time` (bawaan 16:45);
+            merangkum bulan berjalan dibanding akhir bulan sebelumnya, plus ekuitas tertinggi/terendah.
 
 Perubahan ekuitas dihitung dari snapshot ekuitas harian (setting `report_snapshots`) yang dicatat
 otomatis sekali sehari setelah bursa tutup (dan setiap kali laporan dikirim).
 """
+import calendar
 import html
 import threading
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from .autotrader import WIB, rupiah
@@ -20,9 +23,12 @@ from .market_data import MarketDataError
 from .notifier import _pct, index_value
 
 MAX_POSITIONS = 15
-KEEP_SNAPSHOTS = 60
+KEEP_SNAPSHOTS = 400  # ±13 bulan: cukup untuk pembanding bulanan & ekuitas tertinggi/terendah
 SNAPSHOT_TIME = "16:00"  # snapshot otomatis harian (WIB), setelah penutupan bursa
 DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober",
+          "November", "Desember"]
+PERIOD_NAME = {"daily": "harian", "weekly": "mingguan", "monthly": "bulanan"}
 
 
 def signed_rp(x: float) -> str:
@@ -31,6 +37,29 @@ def signed_rp(x: float) -> str:
 
 def ddmm(day: str) -> str:
     return f"{day[8:10]}/{day[5:7]}"
+
+
+def is_last_day_of_month(d: date) -> bool:
+    return d.day == calendar.monthrange(d.year, d.month)[1]
+
+
+@dataclass
+class Window:
+    """Rentang laporan: `cutoff` = tanggal pembanding (None = harian), `start` = awal transaksi yang dihitung."""
+    period: str
+    cutoff: date | None
+    start: date
+    label: str       # "hari ini" / "7 hari" / "bulan ini"
+    move_label: str  # keterangan perubahan IHSG
+
+    @classmethod
+    def of(cls, period: str, today: date) -> "Window":
+        if period == "weekly":
+            return cls(period, today - timedelta(days=7), today - timedelta(days=6), "7 hari", "dalam 7 hari")
+        if period == "monthly":
+            start = today.replace(day=1)
+            return cls(period, start - timedelta(days=1), start, "bulan ini", "bulan ini")
+        return cls("daily", None, today, "hari ini", "")
 
 
 class DailyReporter:
@@ -47,13 +76,15 @@ class DailyReporter:
         state = db.get_setting("daily_report", {}) if db is not None else {}
         self.last_sent: str | None = state.get("last_sent")
         self.last_weekly_sent: str | None = state.get("last_weekly_sent")
+        self.last_monthly_sent: str | None = state.get("last_monthly_sent")
 
     def _now(self) -> datetime:
         return datetime.fromtimestamp(self.clock(), WIB)
 
     def _save_state(self) -> None:
         if self.db is not None:
-            self.db.set_setting("daily_report", {"last_sent": self.last_sent, "last_weekly_sent": self.last_weekly_sent})
+            self.db.set_setting("daily_report", {"last_sent": self.last_sent, "last_weekly_sent": self.last_weekly_sent,
+                                                 "last_monthly_sent": self.last_monthly_sent})
 
     # ---- snapshot ekuitas ----------------------------------------------
     def _snapshots(self) -> dict:
@@ -68,21 +99,21 @@ class DailyReporter:
         snaps[account] = {d: series[d] for d in sorted(series)[-KEEP_SNAPSHOTS:]}
         self.db.set_setting("report_snapshots", snaps)
 
-    def _reference(self, account: str, today: str, period: str) -> tuple[str, float] | None:
-        """Snapshot pembanding: harian = hari sebelumnya; mingguan = ±7 hari lalu (atau yang tertua bila belum ada)."""
+    def _reference(self, account: str, today: str, window: Window) -> tuple[str, float] | None:
+        """Snapshot pembanding: harian = hari sebelumnya; mingguan/bulanan = snapshot terakhir <= tanggal
+        pembanding (±7 hari lalu / akhir bulan lalu), atau yang tertua bila belum ada."""
         series = self._snapshots().get(account, {})
         before = sorted(d for d in series if d < today)
         if not before:
             return None
-        if period == "daily":
+        if window.cutoff is None:
             ref = before[-1]
         else:
-            cutoff = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
-            older = [d for d in before if d <= cutoff]
+            older = [d for d in before if d <= window.cutoff.isoformat()]
             ref = older[-1] if older else before[0]
         return ref, series[ref]
 
-    def _equity_line(self, label: str, equity: float, ref, money, unit_suffix="") -> str:
+    def _equity_line(self, equity: float, ref, money, unit_suffix="") -> str:
         line = f"Ekuitas: <b>{money(equity)}{unit_suffix}</b>"
         if ref is not None and ref[1]:
             change = equity - ref[1]
@@ -90,24 +121,38 @@ class DailyReporter:
             line += f" ({sign}{money(abs(change))}{unit_suffix} / {_pct(change / ref[1] * 100)} sejak {ddmm(ref[0])})"
         return line
 
-    # ---- harga seminggu lalu --------------------------------------------
+    def _range_line(self, account: str, today: str, window: Window, equity: float, money, unit_suffix="") -> str | None:
+        """Bulanan: ekuitas tertinggi & terendah bulan ini (dari snapshot harian + nilai sekarang)."""
+        points = {d: v for d, v in self._snapshots().get(account, {}).items() if d >= window.start.isoformat()}
+        points[today] = equity
+        if len(points) < 2:
+            return None
+        hi, lo = max(points, key=points.get), min(points, key=points.get)
+        return (f"Tertinggi {money(points[hi])}{unit_suffix} ({ddmm(hi)}) · "
+                f"terendah {money(points[lo])}{unit_suffix} ({ddmm(lo)})")
+
+    # ---- harga pada tanggal pembanding ----------------------------------
     @staticmethod
     def _close_before(candles, cutoff: date) -> float | None:
         closes = [c.close for c in candles if datetime.fromtimestamp(c.time, WIB).date() <= cutoff]
         return closes[-1] if closes else None
 
-    def _week_change(self, provider, sym: str, price: float, cutoff: date, crypto: bool = False) -> float | None:
+    def _change_since(self, provider, sym: str, price: float, cutoff: date, crypto: bool = False) -> float | None:
+        """Perubahan harga (%) sejak penutupan pada/terakhir sebelum `cutoff`."""
+        long = (self._now().date() - cutoff).days > 20
         try:
-            candles = provider.candles(sym, None, "1d", 15) if crypto else provider.candles(sym, "1mo", "1d")
+            if crypto:
+                candles = provider.candles(sym, None, "1d", 45 if long else 15)
+            else:
+                candles = provider.candles(sym, "3mo" if long else "1mo", "1d")
         except MarketDataError:
             return None
         prev = self._close_before(candles, cutoff)
         return (price / prev - 1) * 100 if prev else None
 
     # ---- isi laporan ---------------------------------------------------
-    def _stock_section(self, now: datetime, period: str, save: bool) -> list[str]:
+    def _stock_section(self, now: datetime, window: Window, save: bool) -> list[str]:
         today = now.strftime("%Y-%m-%d")
-        week_ago = now.date() - timedelta(days=7)
         quotes = {}
         for sym in set(self.paper.positions) | {"IHSG"}:
             try:
@@ -115,27 +160,31 @@ class DailyReporter:
             except MarketDataError:
                 pass
         acct = self.paper.account({s: q.price for s, q in quotes.items()})
-        ref = self._reference("idx", today, period)
+        ref = self._reference("idx", today, window)
+        money = lambda x: f"Rp{rupiah(x)}"  # noqa: E731
+        lines = ["<b>📈 Saham IDX — akun simulasi</b>", self._equity_line(acct["equity"], ref, money)]
+        if window.period == "monthly":
+            rng = self._range_line("idx", today, window, acct["equity"], money)
+            if rng:
+                lines.append(rng)
         if save:
             self._save_snapshot("idx", today, acct["equity"])
-        lines = ["<b>📈 Saham IDX — akun simulasi</b>",
-                 self._equity_line("idx", acct["equity"], ref, lambda x: f"Rp{rupiah(x)}"),
-                 f"Kas: Rp{rupiah(acct['cash'])} · Nilai saham: Rp{rupiah(acct['market_value'])}",
-                 f"Total P/L: {signed_rp(acct['total_pl'])} ({_pct(acct['total_pl_pct'])})"]
+        lines += [f"Kas: Rp{rupiah(acct['cash'])} · Nilai saham: Rp{rupiah(acct['market_value'])}",
+                  f"Total P/L: {signed_rp(acct['total_pl'])} ({_pct(acct['total_pl_pct'])})"]
         positions = sorted(acct["positions"], key=lambda p: -p["market_value"])
         moves = {}
         if positions:
-            if period == "daily":
+            if window.cutoff is None:
                 day_pl = sum(p["shares"] * quotes[p["symbol"]].change for p in positions if p["symbol"] in quotes)
                 lines.append(f"Posisi ({len(positions)}) · pergerakan hari ini {signed_rp(day_pl)}:")
             else:
-                lines.append(f"Posisi ({len(positions)}) · perubahan harga 7 hari:")
+                lines.append(f"Posisi ({len(positions)}) · perubahan harga {window.label}:")
             for p in positions[:MAX_POSITIONS]:
                 q = quotes.get(p["symbol"])
-                if period == "daily":
+                if window.cutoff is None:
                     chg = q.change_pct if q else None
                 else:
-                    chg = self._week_change(self.provider, p["symbol"], p["last_price"], week_ago)
+                    chg = self._change_since(self.provider, p["symbol"], p["last_price"], window.cutoff)
                     if chg is not None:
                         moves[p["symbol"]] = chg
                 lines.append(f"• {html.escape(p['symbol'])} {p['lots']} lot · {rupiah(p['last_price'])}"
@@ -148,26 +197,26 @@ class DailyReporter:
                 lines.append(f"Terbaik: {best} {_pct(moves[best])} · Terburuk: {worst} {_pct(moves[worst])}")
         else:
             lines.append("Posisi: tidak ada")
-        start = today if period == "daily" else (now.date() - timedelta(days=6)).isoformat()
+        start = window.start.isoformat()
         filled = [o for o in self.paper.orders() if o.status == OrderStatus.FILLED
                   and start <= datetime.fromtimestamp(o.filled_at or o.created_at, WIB).strftime("%Y-%m-%d") <= today]
-        what = "hari ini" if period == "daily" else "7 hari"
         if filled:
             buys = sum(1 for o in filled if o.side.value == "BUY")
             value = sum(o.lots * LOT_SIZE * o.fill_price for o in filled)
-            lines.append(f"Transaksi {what}: {buys} beli, {len(filled) - buys} jual · nilai Rp{rupiah(value)}")
+            lines.append(f"Transaksi {window.label}: {buys} beli, {len(filled) - buys} jual · nilai Rp{rupiah(value)}")
         else:
-            lines.append(f"Transaksi {what}: tidak ada")
+            lines.append(f"Transaksi {window.label}: tidak ada")
         if "IHSG" in quotes:
             q = quotes["IHSG"]
-            if period == "daily":
+            if window.cutoff is None:
                 lines.append(f"IHSG: {index_value(q.price)} ({_pct(q.change_pct)})")
             else:
-                wk = self._week_change(self.provider, "IHSG", q.price, week_ago)
-                lines.append(f"IHSG: {index_value(q.price)}" + (f" ({_pct(wk)} dalam 7 hari)" if wk is not None else ""))
+                chg = self._change_since(self.provider, "IHSG", q.price, window.cutoff)
+                lines.append(f"IHSG: {index_value(q.price)}" +
+                             (f" ({_pct(chg)} {window.move_label})" if chg is not None else ""))
         return lines
 
-    def _crypto_section(self, now: datetime, period: str, save: bool) -> list[str]:
+    def _crypto_section(self, now: datetime, window: Window, save: bool) -> list[str]:
         from .crypto import price_str, qty_str, usdt
         provider, brokers = self.crypto.get("provider"), self.crypto.get("brokers") or {}
         paper = brokers.get("paper")
@@ -181,23 +230,27 @@ class DailyReporter:
         if not acct["positions"] and not paper.orders():
             return []  # akun crypto belum pernah dipakai: tidak perlu dilaporkan
         today = now.strftime("%Y-%m-%d")
-        ref = self._reference("crypto", today, period)
+        ref = self._reference("crypto", today, window)
+        lines = ["<b>🪙 Crypto — akun simulasi (USDT)</b>", self._equity_line(acct["equity"], ref, usdt, " USDT")]
+        if window.period == "monthly":
+            rng = self._range_line("crypto", today, window, acct["equity"], usdt, " USDT")
+            if rng:
+                lines.append(rng)
         if save:
             self._save_snapshot("crypto", today, acct["equity"])
-        lines = ["<b>🪙 Crypto — akun simulasi (USDT)</b>",
-                 self._equity_line("crypto", acct["equity"], ref, usdt, " USDT"),
-                 f"Saldo USDT: {usdt(acct['cash'])} · Total P/L: {'+' if acct['total_pl'] >= 0 else '-'}"
-                 f"{usdt(abs(acct['total_pl']))} ({_pct(acct['total_pl_pct'])})"]
+        lines.append(f"Saldo USDT: {usdt(acct['cash'])} · Total P/L: {'+' if acct['total_pl'] >= 0 else '-'}"
+                     f"{usdt(abs(acct['total_pl']))} ({_pct(acct['total_pl_pct'])})")
         positions = sorted(acct["positions"], key=lambda p: -p["market_value"])
-        week_ago = now.date() - timedelta(days=7)
+        short = {"weekly": "7h", "monthly": "bln"}
         for p in positions[:MAX_POSITIONS]:
-            if period == "daily":
+            if window.cutoff is None:
                 try:
                     chg, label = provider.quote(p["symbol"]).change_pct, "24j"
                 except MarketDataError:
                     chg, label = None, ""
             else:
-                chg, label = self._week_change(provider, p["symbol"], p["last_price"], week_ago, crypto=True), "7h"
+                chg = self._change_since(provider, p["symbol"], p["last_price"], window.cutoff, crypto=True)
+                label = short[window.period]
             lines.append(f"• {html.escape(p['asset'])} {qty_str(p['quantity']).replace('.', ',')} · "
                          f"{price_str(p['last_price'])}{f' ({_pct(chg)} {label})' if chg is not None else ''} · P/L "
                          f"{'+' if p['unrealized_pl'] >= 0 else '-'}{usdt(abs(p['unrealized_pl']))} ({_pct(p['unrealized_pl_pct'])})")
@@ -207,15 +260,20 @@ class DailyReporter:
 
     def build(self, save: bool = False, period: str = "daily") -> str:
         now = self._now()
-        sections = [self._stock_section(now, period, save)]
+        window = Window.of(period, now.date())
+        sections = [self._stock_section(now, window, save)]
         if self.watcher.config.report_crypto:
-            sections.append(self._crypto_section(now, period, save))
-        if period == "daily":
+            sections.append(self._crypto_section(now, window, save))
+        made = f"{DAYS[now.weekday()]} {now:%H:%M} WIB"
+        if window.period == "daily":
             head = f"📊 <b>Laporan portofolio — {DAYS[now.weekday()]}, {now:%d/%m/%Y} {now:%H:%M} WIB</b>"
+        elif window.period == "weekly":
+            head = (f"📅 <b>Laporan mingguan portofolio — {window.start:%d/%m} s/d {now:%d/%m/%Y}</b>\n"
+                    f"<i>Dibuat {made}</i>")
         else:
-            start = now - timedelta(days=6)
-            head = (f"📅 <b>Laporan mingguan portofolio — {start:%d/%m} s/d {now:%d/%m/%Y}</b>\n"
-                    f"<i>Dibuat {DAYS[now.weekday()]} {now:%H:%M} WIB</i>")
+            head = (f"🗓️ <b>Laporan bulanan portofolio — {MONTHS[now.month - 1]} {now.year}</b>\n"
+                    f"<i>{window.start:%d/%m} s/d {now:%d/%m/%Y} · dibanding akhir bulan lalu ({window.cutoff:%d/%m}) · "
+                    f"dibuat {made}</i>")
         body = ["\n".join(s) for s in sections if s]
         return "\n\n".join([head] + body + ["<i>Akun simulasi. Bukan rekomendasi investasi.</i>"])
 
@@ -227,14 +285,12 @@ class DailyReporter:
         """Kirim laporan sekarang (dari tombol atau jadwal) dan simpan snapshot ekuitas hari ini."""
         with self._lock:
             ok, err = self.watcher._send(self.build(save=True, period=period))
-            name = "harian" if period == "daily" else "mingguan"
+            name = PERIOD_NAME[period]
             if not ok:
                 return self.watcher._record("ERROR", "-", f"Laporan {name} gagal dikirim: {err}")
             today = self._now().strftime("%Y-%m-%d")
-            if period == "daily":
-                self.last_sent = today
-            else:
-                self.last_weekly_sent = today
+            setattr(self, {"daily": "last_sent", "weekly": "last_weekly_sent", "monthly": "last_monthly_sent"}[period],
+                    today)
             self._save_state()
             return self.watcher._record("REPORT", "-", f"Laporan {name} portofolio terkirim", sent=True)
 
@@ -259,6 +315,15 @@ class DailyReporter:
             return False
         return now.strftime("%H:%M") >= cfg.weekly_time
 
+    def monthly_due(self) -> bool:
+        cfg, now = self.watcher.config, self._now()
+        if not cfg.monthly_enabled or not self._ready():
+            return False
+        on_day = is_last_day_of_month(now.date()) if cfg.monthly_day == 0 else now.day == cfg.monthly_day
+        if not on_day or self.last_monthly_sent == now.strftime("%Y-%m-%d"):
+            return False
+        return now.strftime("%H:%M") >= cfg.monthly_time
+
     def maybe_snapshot(self) -> bool:
         """Catat ekuitas sekali sehari setelah bursa tutup, walau laporan harian tidak aktif."""
         now = self._now()
@@ -274,6 +339,8 @@ class DailyReporter:
             out.append(self.send_now("daily"))
         if self.weekly_due():
             out.append(self.send_now("weekly"))
+        if self.monthly_due():
+            out.append(self.send_now("monthly"))
         self.maybe_snapshot()
         return out
 
@@ -286,6 +353,13 @@ class DailyReporter:
     def next_weekly(self) -> str | None:
         cfg = self.watcher.config
         return f"{DAYS[cfg.weekly_day]} {cfg.weekly_time} WIB" if cfg.weekly_enabled else None
+
+    def next_monthly(self) -> str | None:
+        cfg = self.watcher.config
+        if not cfg.monthly_enabled:
+            return None
+        day = "hari terakhir tiap bulan" if cfg.monthly_day == 0 else f"tanggal {cfg.monthly_day} tiap bulan"
+        return f"{day} {cfg.monthly_time} WIB"
 
     # ---- loop latar belakang -------------------------------------------
     def start(self) -> None:

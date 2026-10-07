@@ -15,7 +15,7 @@
     quote: null, config: null, started: false, botRunning: false, tab: "portfolio", positions: [],
   };
   const timers = [];
-  let hovering = false;
+  let hovering = false, alertLines = [];
   let chart = null, candles = null, volume = null, ema12 = null, ema26 = null, markerApi = null, chartData = null;
 
   // ---- format -------------------------------------------------------------
@@ -206,12 +206,23 @@
         color: m.side === "BUY" ? up : down,
         text: `${m.side === "BUY" ? "B" : "S"}${m.sources.includes("auto") ? " 🤖" : ""}`,
       })));
+      applyAlertLines();
       legend(null);
       renderSignal(d.analysis);
     } catch (e) {
       $("#cChartMsg").textContent = e.message;
     }
   }
+
+  // Garis target alert harga Telegram (alerts.js) untuk pasangan yang sedang dibuka.
+  function applyAlertLines() {
+    if (!candles || !chartData) return;
+    alertLines.forEach((l) => candles.removePriceLine(l));
+    const bars = chartData.bars;
+    alertLines = window.alertPriceLines?.(candles, chartData.symbol, bars.length ? bars[bars.length - 1].close : null,
+                                         css("--accent"), LWC) || [];
+  }
+  window.addEventListener("alerts-changed", applyAlertLines);
 
   function liveUpdateChart(p) {
     if (!chartData || !candles || !chartData.bars.length || st.quote?.symbol !== chartData.symbol) return;

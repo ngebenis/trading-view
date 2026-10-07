@@ -14,7 +14,7 @@
   const timeKey = (t) => (typeof t === "object" && t !== null)
     ? `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}` : t;
   let chart = null, candles = null, volume = null, ema12 = null, ema26 = null, markerApi = null, avgLine = null;
-  let data = null, markerByDay = new Map(), loadedFor = null, limitLines = [];
+  let data = null, markerByDay = new Map(), loadedFor = null, limitLines = [], alertLines = [];
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -22,6 +22,7 @@
     if (chart) { chart.remove(); chart = null; }
     markerApi = avgLine = null;
     limitLines = [];
+    alertLines = [];
   }
 
   // Garis batas ARA/ARB hari ini (dari quote di app.js). Tidak memengaruhi skala otomatis grafik.
@@ -35,6 +36,15 @@
       limitLines.push(candles.createPriceLine({ price, title, color, lineWidth: 1,
         lineStyle: LWC.LineStyle.Dotted, axisLabelVisible: true }));
     }
+  }
+
+  // Garis target alert harga Telegram (alerts.js) untuk saham yang sedang dibuka.
+  function applyAlertLines() {
+    if (!candles || !data) return;
+    alertLines.forEach((l) => candles.removePriceLine(l));
+    const bars = data.bars;
+    alertLines = window.alertPriceLines?.(candles, data.symbol, bars.length ? bars[bars.length - 1].close : null,
+                                         css("--accent"), LWC) || [];
   }
 
   function build() {
@@ -181,6 +191,7 @@
     ema26.setData(data.ema26);
     applyMarkers();
     applyLimitLines();
+    applyAlertLines();
     if (!keepView || loadedFor !== symbol) chart.timeScale().fitContent();
     loadedFor = symbol;
     onCrosshair({});
@@ -262,5 +273,6 @@
   window.refreshPriceChart = refresh;
   window.liveUpdateChart = liveUpdate;
   window.refreshLimitLines = applyLimitLines;
+  window.addEventListener("alerts-changed", applyAlertLines);
   window.showBacktestOnChart = showBacktest;
 })();

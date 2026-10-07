@@ -335,6 +335,9 @@ dan tetap berjalan walau pemantau sinyal dihentikan; cukup bot token & chat ID t
 - Untuk saham IDX, aplikasi mengingatkan bila target di luar rentang ARB–ARA hari ini (baru bisa tercapai di hari
   bursa berikutnya). Ketepatan waktu mengikuti sumber data: Yahoo tertunda ±10–15 menit, Invezgo/GoAPI/price feed
   TradingView lebih segar.
+- Target alert aktif tampil sebagai **garis putus-putus 🎯** di grafik saham & crypto (▲ naik / ▼ turun + catatan);
+  skala harga ikut diperluas bila target masih dalam ±25% dari harga terakhir. Garis langsung hilang saat alert
+  terpicu atau dihapus.
 - Daftar semua alert (status, kapan terpicu, catatan) ada di tab **Notifikasi**.
 
 ```

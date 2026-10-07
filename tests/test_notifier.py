@@ -171,6 +171,16 @@ def test_autotrader_trades_forwarded(env, tmp_path):
     assert len(tg.sent) == 1
 
 
+def demo_buy_symbol(client) -> str:
+    """Kode demo pertama yang sinyalnya BELI (data demo deterministik, tapi tidak dihafal di test)."""
+    import itertools
+    for a, b, c, d in itertools.product("ABCDEMNPT", "ABDIKLMNORT", "ACEIKMNRST", "ABDIMNOPRT"):
+        sym = a + b + c + d
+        if client.get(f"/api/analysis/{sym}").json()["action"] == "BUY":
+            return sym
+    raise AssertionError("tidak ada simbol demo bersinyal BELI")
+
+
 def test_api(tmp_path):
     tg = FakeTelegram()
     client = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider(), telegram_http=tg.client()))
@@ -178,13 +188,14 @@ def test_api(tmp_path):
     assert st["configured"] is False and st["running"] is False
     assert client.post("/api/notifications/start").status_code == 400
     assert client.post("/api/notifications/run-once").status_code == 400
-    r = client.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "symbols": ["AAMB", "BBCA"]})
+    buy_sym = demo_buy_symbol(client)
+    r = client.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "symbols": [buy_sym, "BBCA"]})
     assert r.status_code == 200 and r.json()["configured"] and TOKEN not in r.text
     assert client.put("/api/notifications/config", json={"interval_seconds": 5}).status_code == 400
     assert client.post("/api/notifications/test").status_code == 200 and "aktif" in tg.sent[-1]["text"]
     out = client.post("/api/notifications/run-once").json()
-    assert out["last_action"]["AAMB"] == "BUY"  # simbol demo dengan sinyal BELI
-    assert any("SINYAL BELI — AAMB" in m["text"] for m in tg.sent)
+    assert out["last_action"][buy_sym] == "BUY"
+    assert any(f"SINYAL BELI — {buy_sym}" in m["text"] for m in tg.sent)
     assert client.get("/api/notifications/chats").status_code == 200
     assert client.post("/api/notifications/start").json()["running"] is True
     assert client.post("/api/notifications/stop").json()["running"] is False

@@ -143,8 +143,26 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 .kind-SKIP { color: var(--muted); }
 #hookLog th, #hookLog td { text-align: left; }
 #hookLog td:nth-child(4) { white-space: normal; width: 100%; }
+/* grafik Lightweight Charts */
+.chart-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.seg-sm { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg-sm button { border: none; border-radius: 0; padding: 4px 10px; font-size: 13px; }
+.seg-sm button.active { background: var(--accent); color: #fff; }
+.chart-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.chart-controls select { width: auto; padding: 4px 6px; font-size: 13px; }
+/* Tinggi tetap: autoSize grafik mengikuti wadah, jadi wadah tidak boleh ikut melebar mengikuti grafik. */
+.lw-wrap { position: relative; flex: none; height: 480px; min-height: 0; }
+.lw-chart { position: absolute; inset: 0; }
+.chart-legend { position: absolute; top: 6px; left: 10px; z-index: 3; font-size: 12px; pointer-events: none;
+  font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 4px 10px; max-width: calc(100% - 90px);
+  background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 2px 6px; border-radius: 4px; }
+.chart-legend .lg { display: inline-flex; align-items: center; gap: 4px; }
+.chart-trades { flex-basis: 100%; color: var(--text); font-weight: 600; }
+.chart-msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; color: var(--muted); z-index: 2; }
+.chart-msg:empty { display: none; }
 .hidden { display: none !important; }
 @media (max-width: 1000px) {
+  .lw-wrap { height: 380px; }
   main { grid-template-columns: 1fr; }
   #watchlistPanel { order: 2; } .center { order: 1; } #tradePanel { order: 3; }
   .header-right { margin-left: 0; }

@@ -26,3 +26,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+`app/static/vendor/lightweight-charts.standalone.production.js` is
+[TradingView Lightweight Charts™](https://github.com/tradingview/lightweight-charts) v5.2.1,
+Copyright (c) 2026 TradingView, Inc., licensed under the Apache License 2.0
+(full text in `app/static/vendor/lightweight-charts.LICENSE`). The chart keeps the library's default
+TradingView attribution logo, as the library's license notice asks.

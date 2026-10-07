@@ -39,7 +39,29 @@
           <a id="lnkTradingView" target="_blank" rel="noopener">TradingView ↗</a>
         </span>
       </div>
-      <div id="tvChart" class="chart"></div>
+      <div class="chart-toolbar">
+        <div id="chartViewSeg" class="seg-sm" role="group" aria-label="Jenis grafik">
+          <button type="button" data-view="lw">Grafik + transaksi</button>
+          <button type="button" data-view="tv">TradingView</button>
+        </div>
+        <div id="chartLwControls" class="chart-controls">
+          <select id="chartRangeSel" aria-label="Rentang">
+            <option value="3mo">3 bln</option><option value="6mo">6 bln</option><option value="1y">1 thn</option>
+            <option value="2y">2 thn</option><option value="5y">5 thn</option>
+          </select>
+          <select id="chartMarkerSel" aria-label="Penanda transaksi">
+            <option value="paper">Penanda: akun simulasi</option>
+            <option value="backtest">Penanda: backtest terakhir</option>
+          </select>
+          <span id="chartMarkerInfo" class="muted"></span>
+        </div>
+      </div>
+      <div id="lwWrap" class="chart lw-wrap">
+        <div id="chartLegend" class="chart-legend"></div>
+        <div id="chartMsg" class="chart-msg"></div>
+        <div id="lwChart" class="lw-chart"></div>
+      </div>
+      <div id="tvChart" class="chart hidden"></div>
     </section>
 
     <aside class="panel" id="tradePanel">
@@ -329,7 +351,9 @@
   </section>
 
   <script src="https://s3.tradingview.com/tv.js"></script>
+  <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/chart.js"></script>
   <script src="/static/backtest.js"></script>
   <script src="/static/notifications.js"></script>
   <script src="/static/fundamentals.js"></script>

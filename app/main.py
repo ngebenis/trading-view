@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .autotrader import AutoTrader
+from .chart_data import build_chart
 from .backtest import PERIOD_DAYS, BacktestRequest, run_backtest
 from .brokers import (Broker, BrokerError, BrokerNotAvailable, Order, OrderType, PaperBroker,
                       PluangBroker, Side, StockbitBroker)
@@ -132,6 +133,15 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     def candles(symbol: str, range: str = Query("6mo"), interval: str = Query("1d")):
         try:
             return [c.to_dict() for c in provider.candles(symbol, range, interval)]
+        except MarketDataError as exc:
+            raise HTTPException(502, str(exc))
+
+    @app.get("/api/chart/{symbol}")
+    def chart(symbol: str, range: str = Query("1y")):
+        if range not in ("3mo", "6mo", "1y", "2y", "5y"):
+            raise HTTPException(400, "Rentang harus salah satu dari 3mo, 6mo, 1y, 2y, 5y")
+        try:
+            return build_chart(provider, paper, symbol, range)
         except MarketDataError as exc:
             raise HTTPException(502, str(exc))
 

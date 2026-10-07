@@ -2,7 +2,7 @@
 
 Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi beli/jual**:
 
-- 📈 Grafik interaktif **TradingView** (`IDX:<KODE>`) dengan RSI, MACD, EMA
+- 📈 Grafik candlestick **Lightweight Charts** dengan EMA, volume & **penanda transaksi** (akun simulasi / backtest), plus widget **TradingView** (`IDX:<KODE>`)
 - 💹 Harga & histori dari Yahoo Finance (`<KODE>.JK`), atau data demo offline
 - 📉 Pantau **IHSG** & **LQ45**: ticker IHSG di header, grafik, sinyal teknikal & notifikasi Telegram
 - 📑 **Analisis fundamental** dari laporan keuangan resmi IDX (XBRL): PER, PBV, ROE, DER, pertumbuhan laba
@@ -28,6 +28,22 @@ uvicorn app.main:app --reload
 Buka http://localhost:8000. Tanpa internet, set `MARKET_DATA_PROVIDER=demo` di `.env`.
 
 Test: `pytest`
+
+## 📈 Grafik dengan penanda transaksi
+
+Grafik utama memakai [Lightweight Charts](https://github.com/tradingview/lightweight-charts)
+(open-source dari TradingView, disertakan di `app/static/vendor/` sehingga tidak butuh CDN):
+candlestick harian, EMA 12/26, volume, dan **penanda transaksi**:
+
+- **Penanda: akun simulasi** — panah ▲ **B** (beli) / ▼ **S** (jual) dengan jumlah lot untuk setiap
+  order terisi di saham itu (manual, 🤖 bot, 📡 webhook; beberapa order di hari yang sama digabung),
+  plus garis putus-putus harga rata-rata posisi yang masih dipegang.
+- **Penanda: backtest terakhir** — titik masuk/keluar dari hasil backtest beserta hasil per transaksi.
+  Di tab **Backtest**, klik **Lihat di grafik** pada tabel per saham.
+
+Arahkan kursor ke candle untuk melihat OHLC, volume, EMA, dan rincian transaksi di hari itu. Pilih
+rentang 3 bulan – 5 tahun. Tombol **TradingView** di atas grafik beralih ke widget TradingView
+(indikator lengkap, tanpa penanda). Pilihan tampilan & rentang diingat di browser.
 
 ## 📉 Indeks IHSG & LQ45
 
@@ -237,7 +253,8 @@ app/
     base.py          Kontrak Broker & model Order
     paper.py         Simulasi paper trading (tersimpan di data/paper_account.json)
     external.py      Kerangka adapter Stockbit & Pluang
-  static/            UI (HTML/CSS/JS + widget TradingView)
+  chart_data.py      Data grafik: candle, EMA & penanda transaksi
+  static/            UI (HTML/CSS/JS, Lightweight Charts di static/vendor, widget TradingView)
 scripts/
   fetch_idx_reports.py  Pengunduh laporan XBRL dari idx.co.id (opsional, butuh Playwright)
 tests/               Unit & API test
@@ -250,6 +267,7 @@ tests/               Unit & API test
 | GET | `/api/quote/{kode}` | Harga terakhir |
 | GET | `/api/candles/{kode}?range=6mo&interval=1d` | Data OHLCV |
 | GET | `/api/analysis/{kode}` | Sinyal teknikal |
+| GET | `/api/chart/{kode}?range=1y` | Candle, EMA 12/26 & penanda transaksi akun simulasi |
 | GET | `/api/brokers` | Daftar broker & statusnya |
 | GET | `/api/account?broker=paper` | Saldo, posisi, P/L |
 | GET/POST | `/api/orders` | Riwayat / kirim order |

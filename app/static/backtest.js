@@ -108,9 +108,11 @@
     w.classList.toggle("hidden", !r.warnings.length);
     w.innerHTML = r.warnings.length ? "Catatan: " + r.warnings.map(escapeHtml).join("; ") : "";
 
-    $("#btSymbols").innerHTML = `<tr><th>Kode</th><th>Transaksi</th><th>Menang</th><th>P/L strategi</th><th>Beli & tahan</th></tr>` +
+    $("#btSymbols").innerHTML = `<tr><th>Kode</th><th>Transaksi</th><th>Menang</th><th>P/L strategi</th><th>Beli & tahan</th><th></th></tr>` +
       r.per_symbol.map((s) => `<tr><td>${s.symbol}</td><td>${s.trades}</td><td>${s.wins}</td>
-        <td class="${cls(s.pl)}">${rp(s.pl)}</td><td class="${cls(s.buy_hold_pct)}">${pct(s.buy_hold_pct)}</td></tr>`).join("");
+        <td class="${cls(s.pl)}">${rp(s.pl)}</td><td class="${cls(s.buy_hold_pct)}">${pct(s.buy_hold_pct)}</td>
+        <td><button type="button" data-chart="${escapeHtml(s.symbol)}" ${s.trades ? "" : "disabled"}>Lihat di grafik</button></td></tr>`).join("");
+    $("#btSymbols").querySelectorAll("[data-chart]").forEach((b) => { b.onclick = () => window.showBacktestOnChart?.(b.dataset.chart); });
 
     $("#btTradeCount").textContent = `(${r.trades.length})`;
     $("#btTrades").innerHTML = `<tr><th>Kode</th><th>Masuk</th><th>Harga masuk</th><th>Keluar</th><th>Harga keluar</th><th>Lot</th><th>Hari</th><th>P/L</th></tr>` +
@@ -216,4 +218,6 @@
   }
 
   window.initBacktest = init;
+  // Transaksi backtest terakhir untuk satu saham (dipakai grafik untuk penanda).
+  window.getBacktestTrades = (symbol) => (lastResult ? lastResult.trades.filter((t) => t.symbol === symbol) : []);
 })();

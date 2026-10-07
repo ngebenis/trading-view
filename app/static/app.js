@@ -398,7 +398,7 @@ async function init() {
     $("#hookPane").classList.toggle("hidden", tab !== "hook");
     $("#summary").classList.toggle("hidden", ["auto", "backtest", "notif", "fund", "hook"].includes(tab));
     if (tab === "hook") window.loadWebhook?.();
-    if (tab === "notif") window.initNotifications?.();
+    if (tab === "notif") { window.initNotifications?.(); window.reloadAlerts?.(); }
     if (tab === "fund") window.loadFundamentals?.();
     if (tab === "backtest") window.initBacktest?.();
     if (t.dataset.tab === "auto") loadAuto(true);

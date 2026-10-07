@@ -44,6 +44,8 @@ class Settings:
     local_only_guard: bool = os.getenv("LOCAL_ONLY_GUARD", "true").lower() != "false"
     # Mode live: seberapa sering harga diambil ulang (detik). Jangan terlalu kecil agar tidak
     # kena batas permintaan sumber data (Yahoo).
+    # Alert harga Telegram: seberapa sering harga dicek terhadap target (detik).
+    price_alert_seconds: float = float(os.getenv("PRICE_ALERT_SECONDS", "30"))
     live_focus_seconds: float = float(os.getenv("LIVE_FOCUS_SECONDS", "10"))   # saham yang sedang dibuka
     live_watch_seconds: float = float(os.getenv("LIVE_WATCH_SECONDS", "30"))   # watchlist & IHSG
     # Umur maksimum satu koneksi stream; browser (EventSource) otomatis menyambung ulang.

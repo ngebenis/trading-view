@@ -218,6 +218,19 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 .watch .w-price small { color: inherit; font-size: 11px; }
 .watch li { align-items: center; }
 td.wrap { white-space: normal; text-align: left; }
+/* alert harga */
+.alert-head { margin-top: 18px; }
+.alert-form { display: flex; flex-direction: column; gap: 8px; }
+.alert-form .check { flex-direction: row; align-items: center; gap: 6px; }
+.alert-form .check input { width: auto; }
+.alert-form .primary { padding: 6px 10px; white-space: nowrap; }
+.alert-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.alert-list li { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 4px 0;
+  border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.alert-list li .rm { border: none; background: none; color: var(--muted); padding: 0 4px; }
+.alert-list .done { color: var(--muted); }
+#alertTable td:nth-child(6) { white-space: normal; text-align: left; }
+.kind-TARGET { color: var(--accent); font-weight: 600; }
 #cPortfolio a { color: var(--accent); text-decoration: none; font-weight: 600; }
 @media (max-width: 1000px) {
   .lw-wrap { height: 380px; }

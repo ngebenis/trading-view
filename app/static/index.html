@@ -101,6 +101,16 @@
         <button id="submitOrder" class="primary buy">Beli</button>
         <div id="orderMsg" class="msg"></div>
       </form>
+      <h2 class="alert-head">Alert harga → Telegram</h2>
+      <form id="alertForm" class="alert-form" novalidate>
+        <span class="inline"><input name="target" type="number" step="any" min="0" placeholder="Target harga" aria-label="Target harga">
+          <button class="primary">🎯 Pasang</button></span>
+        <input name="note" maxlength="200" placeholder="Catatan (opsional)" aria-label="Catatan alert">
+        <label class="check"><input name="repeat" type="checkbox"> Berulang (jeda min. 30 mnt)</label>
+        <small class="alert-hint"></small>
+        <ul class="alert-list"></ul>
+        <div class="msg"></div>
+      </form>
     </aside>
   </main>
 
@@ -348,6 +358,10 @@
         </div>
       </form>
       <p class="disclaimer">Pesan dikirim saat sinyal <b>berubah</b> menjadi BELI atau JUAL — sinyal yang sama tidak dikirim ulang sampai mereda lalu muncul lagi. Sinyal saham memakai candle harian; sinyal crypto memakai candle pilihan di atas. Saham yang menyentuh ARA/ARB dan crypto yang bergerak melewati ambang 24 jam dikabarkan sekali per hari.</p>
+      <h2>Alert harga <span id="alertCount" class="muted"></span></h2>
+      <p class="disclaimer">Pasang alert dari panel order (saham maupun crypto). Harga dicek tiap ±<span id="alertInterval">30</span> detik
+        memakai sumber data aplikasi, lalu dikirim lewat bot Telegram di atas.</p>
+      <div class="table-wrap"><table id="alertTable"></table></div>
       <h2>Riwayat notifikasi</h2>
       <div class="table-wrap"><table id="notifLog"></table></div>
     </div>
@@ -484,6 +498,16 @@
         <button id="cSubmit" class="primary buy">Beli</button>
         <div id="cOrderMsg" class="msg"></div>
       </form>
+      <h2 class="alert-head">Alert harga → Telegram</h2>
+      <form id="cAlertForm" class="alert-form" novalidate>
+        <span class="inline"><input name="target" type="number" step="any" min="0" placeholder="Target harga" aria-label="Target harga">
+          <button class="primary">🎯 Pasang</button></span>
+        <input name="note" maxlength="200" placeholder="Catatan (opsional)" aria-label="Catatan alert">
+        <label class="check"><input name="repeat" type="checkbox"> Berulang (jeda min. 30 mnt)</label>
+        <small class="alert-hint"></small>
+        <ul class="alert-list"></ul>
+        <div class="msg"></div>
+      </form>
     </aside>
   </main>
 
@@ -561,5 +585,6 @@
   <script src="/static/webhook.js"></script>
   <script src="/static/feed.js"></script>
   <script src="/static/crypto.js"></script>
+  <script src="/static/alerts.js"></script>
 </body>
 </html>

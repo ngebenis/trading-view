@@ -472,6 +472,8 @@
   function stop() { while (timers.length) clearInterval(timers.pop()); }
 
   window.cryptoWatchlist = () => st.watch;
+  window.cryptoCurrent = () => ({ symbol: st.symbol, price: st.quote?.symbol === st.symbol ? st.quote.price : null,
+                                  quote: st.quote?.quote_asset || "" });
   document.querySelectorAll("#marketSeg button").forEach((b) => b.onclick = () => setMarket(b.dataset.market));
   setMarket(pref("market", "idx") === "crypto" ? "crypto" : "idx");
 })();

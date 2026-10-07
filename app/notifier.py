@@ -103,7 +103,7 @@ def format_limit(symbol: str, status: str, quote, limits: tuple[int, int]) -> st
 
 def format_trade(entry: dict) -> str:
     icon = "🛒" if entry.get("side") == "BUY" else "💰"
-    return (f"{icon} <b>Auto-trading (simulasi)</b>\n"
+    return (f"{icon} <b>{html.escape(entry.get('title') or 'Auto-trading (simulasi)')}</b>\n"
             f"{html.escape(entry['symbol'])}: {html.escape(entry['message'])}")
 
 

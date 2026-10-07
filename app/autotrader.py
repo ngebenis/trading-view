@@ -70,13 +70,18 @@ class AutoTraderConfig:
 
 
 class AutoTrader:
+    # Diganti subclass (mis. auto-trader crypto) agar pengaturan & log tersimpan terpisah.
+    SETTING_KEY = "autotrader"
+    LOG_STREAM = "autotrader"
+    CONFIG_CLS = AutoTraderConfig
+
     def __init__(self, broker: PaperBroker, provider, db, max_position_pct: float, clock=time.time):
         self.broker = broker
         self.provider = provider
         self.db = db  # app.db.Database, atau None (backtest: tidak ada yang disimpan)
         self.max_position_pct = max_position_pct
         self.clock = clock
-        self.log: deque[dict] = deque(db.recent_logs("autotrader", 300) if db else (), maxlen=300)
+        self.log: deque[dict] = deque(db.recent_logs(self.LOG_STREAM, 300) if db else (), maxlen=300)
         self.listeners: list = []  # dipanggil untuk setiap entri log baru (mis. notifikasi Telegram)
         self._seq = self.log[0]["id"] if self.log else 0
         self.last_run: float | None = None
@@ -87,21 +92,24 @@ class AutoTrader:
         self.config = self._load()
 
     # ---- konfigurasi -------------------------------------------------
-    def _load(self) -> AutoTraderConfig:
-        raw = self.db.get_setting("autotrader") if self.db is not None else None
+    def _load(self):
+        raw = self.db.get_setting(self.SETTING_KEY) if self.db is not None else None
         if raw:
-            known = {f.name for f in fields(AutoTraderConfig)}
-            return AutoTraderConfig(**{k: v for k, v in raw.items() if k in known})
-        return AutoTraderConfig()
+            known = {f.name for f in fields(self.CONFIG_CLS)}
+            return self.CONFIG_CLS(**{k: v for k, v in raw.items() if k in known})
+        return self.CONFIG_CLS()
 
     def _save(self) -> None:
         if self.db is not None:
-            self.db.set_setting("autotrader", asdict(self.config))
+            self.db.set_setting(self.SETTING_KEY, asdict(self.config))
 
-    def update_config(self, data: dict) -> AutoTraderConfig:
-        merged = {**asdict(self.config), **data, "enabled": self.config.enabled}
-        cfg = AutoTraderConfig(**merged)
+    def _validate(self, cfg) -> None:
         cfg.validate(self.max_position_pct)
+
+    def update_config(self, data: dict):
+        merged = {**asdict(self.config), **data, "enabled": self.config.enabled}
+        cfg = self.CONFIG_CLS(**merged)
+        self._validate(cfg)
         self.config = cfg
         self._save()
         return cfg
@@ -117,7 +125,7 @@ class AutoTrader:
         if not self.running:
             self._log("INFO", "-", "Auto-trading dimulai")
             self._stop.clear()
-            self._thread = threading.Thread(target=self._loop, name="autotrader", daemon=True)
+            self._thread = threading.Thread(target=self._loop, name=self.LOG_STREAM, daemon=True)
             self._thread.start()
 
     def stop(self) -> None:
@@ -140,7 +148,7 @@ class AutoTrader:
     def _log(self, level: str, symbol: str, message: str, **extra) -> None:
         entry = {"time": self.clock(), "level": level, "symbol": symbol, "message": message, **extra}
         # id log = id baris SQLite (atau penghitung biasa tanpa database), selalu naik.
-        self._seq = self.db.append_log("autotrader", entry) if self.db is not None else self._seq + 1
+        self._seq = self.db.append_log(self.LOG_STREAM, entry) if self.db is not None else self._seq + 1
         entry = {"id": self._seq, **entry}
         self.log.appendleft(entry)
         for listener in self.listeners:

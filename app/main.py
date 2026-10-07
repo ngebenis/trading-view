@@ -25,6 +25,7 @@ from .idx_rules import (ARA_PCTS, ARB_PCTS, LOT_SIZE, is_index, limit_status, no
                         round_to_tick, stockbit_url, tick_size,
                         tradingview_symbol, tradingview_url)
 from .fundamentals import FundamentalsError, FundamentalsStore, compute_ratios, idx_report_url, recent_periods
+from .crypto_api import register_crypto
 from .market_data import MarketDataError, get_provider
 from .price_feed import FeedError, FeedProvider, PriceFeed, pine_script
 from .notifier import NotifierError, SignalWatcher
@@ -52,7 +53,8 @@ class OrderRequest(BaseModel):
     confirm_live: bool = False
 
 
-def create_app(settings: Settings = default_settings, provider=None, telegram_http=None) -> FastAPI:
+def create_app(settings: Settings = default_settings, provider=None, telegram_http=None,
+               binance_http=None) -> FastAPI:
     db = Database(settings.database_path or settings.data_dir / "app.db")
     db.migrate_json(settings.data_dir, settings.paper_starting_cash)  # sekali, dari versi berbasis JSON
     db.prune_logs(keep_days=180)
@@ -79,9 +81,13 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
                 watcher.start()
             except NotifierError:
                 pass
+        if crypto["bot"].config.enabled and crypto["bot"].target.available():
+            crypto["bot"].start()
         yield
         if autotrader.running:
             autotrader._stop.set()
+        if crypto["bot"].running:
+            crypto["bot"]._stop.set()
         watcher.shutdown()
 
     app = FastAPI(title="IDX Trading View", version="0.2.0", lifespan=lifespan)
@@ -89,6 +95,8 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
     app.state.watcher = watcher
     app.state.webhook = webhook
     app.state.feed = feed
+    crypto = register_crypto(app, settings, db, watcher, binance_http)
+    app.state.crypto = crypto
     app.state.db = db
 
     # Pengaman tunnel: request yang lewat proxy/tunnel (ngrok, Cloudflare Tunnel, dll) membawa header

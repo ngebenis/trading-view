@@ -422,11 +422,13 @@ async function init() {
   $("#ihsgTicker").onclick = () => loadSymbol("IHSG");
   refreshIhsgTicker();
   // Harga diperbarui lewat mode live (live.js); polling ini hanya cadangan bila koneksi live putus.
+  const idxVisible = () => document.body.dataset.market !== "crypto";
   setInterval(() => {
+    if (!idxVisible()) return;
     if (!window.liveConnected?.()) { refreshWatchPrices(); refreshIhsgTicker(); }
     loadAccount(); window.refreshPriceChart?.();
   }, 60_000);
-  setInterval(() => { if (!$("#autoPane").classList.contains("hidden") || state.autoRunning) loadAuto(false); }, 15_000);
+  setInterval(() => { if (idxVisible() && (!$("#autoPane").classList.contains("hidden") || state.autoRunning)) loadAuto(false); }, 15_000);
 }
 
 init();

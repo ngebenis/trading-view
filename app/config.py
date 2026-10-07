@@ -41,6 +41,19 @@ class Settings:
     live_watch_seconds: float = float(os.getenv("LIVE_WATCH_SECONDS", "30"))   # watchlist & IHSG
     # Umur maksimum satu koneksi stream; browser (EventSource) otomatis menyambung ulang.
     live_stream_max_seconds: float = float(os.getenv("LIVE_STREAM_MAX_SECONDS", "1800"))
+    # ---- crypto (Binance) ----
+    # Data pasar publik (tanpa API key). Bila api.binance.com diblokir di jaringan Anda, coba
+    # https://data-api.binance.vision (endpoint resmi khusus data pasar).
+    binance_data_url: str = os.getenv("BINANCE_DATA_URL", "https://api.binance.com")
+    binance_api_url: str = os.getenv("BINANCE_API_URL", "https://api.binance.com")
+    binance_api_key: str = os.getenv("BINANCE_API_KEY", "")
+    binance_api_secret: str = os.getenv("BINANCE_API_SECRET", "")
+    binance_testnet_url: str = os.getenv("BINANCE_TESTNET_URL", "https://testnet.binance.vision")
+    binance_testnet_api_key: str = os.getenv("BINANCE_TESTNET_API_KEY", "")
+    binance_testnet_api_secret: str = os.getenv("BINANCE_TESTNET_API_SECRET", "")
+    crypto_paper_starting_cash: float = float(os.getenv("CRYPTO_PAPER_STARTING_USDT", "10000"))
+    crypto_fee_pct: float = float(os.getenv("CRYPTO_FEE_PCT", "0.1"))
+    crypto_max_position_pct: float = float(os.getenv("CRYPTO_MAX_POSITION_PCT", "20"))
     data_dir: Path = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
     # Database SQLite; kosong = <DATA_DIR>/app.db
     database_path: str = os.getenv("DATABASE_PATH", "")

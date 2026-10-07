@@ -54,7 +54,7 @@ small { color: var(--muted); }
 .note { font-size: 13px; background: var(--bg); border-left: 3px solid var(--accent); padding: 8px; margin-bottom: 10px; }
 .bottom { margin: 0 16px 16px; padding: 12px; }
 .tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-.tab.active { border-color: var(--accent); color: var(--accent); }
+.tab.active, .ctab.active { border-color: var(--accent); color: var(--accent); }
 .link { margin-left: auto; border: none; background: none; color: var(--muted); text-decoration: underline; }
 .summary { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 8px; }
 .summary div span { display: block; font-size: 12px; color: var(--muted); }
@@ -205,6 +205,20 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
   .blink-up { animation: flashUp 1.2s ease-out; } .blink-down { animation: flashDown 1.2s ease-out; }
 }
 .hidden { display: none !important; }
+/* crypto */
+#marketSeg button { padding: 5px 12px; }
+.order-form { display: flex; flex-direction: column; gap: 10px; }
+.inline-select { display: inline-block; width: auto; padding: 1px 4px; margin-left: 4px; font-size: 12px; }
+.watch { list-style: none; padding: 0; margin: 0 0 8px; }
+.watch li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 4px; border-radius: 4px; cursor: pointer; }
+.watch li:hover, .watch li.active { background: var(--bg); }
+.watch .rm { color: var(--muted); margin-left: 6px; visibility: hidden; }
+.watch li:hover .rm { visibility: visible; }
+.watch .w-price { font-variant-numeric: tabular-nums; text-align: right; display: inline-flex; flex-direction: column; line-height: 1.25; }
+.watch .w-price small { color: inherit; font-size: 11px; }
+.watch li { align-items: center; }
+td.wrap { white-space: normal; text-align: left; }
+#cPortfolio a { color: var(--accent); text-decoration: none; font-weight: 600; }
 @media (max-width: 1000px) {
   .lw-wrap { height: 380px; }
   main { grid-template-columns: 1fr; }

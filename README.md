@@ -16,6 +16,8 @@ Aplikasi web untuk **membaca pasar saham Indonesia (IDX)** dan **melakukan aksi 
 - 📊 **Backtest** strategi auto-trading dengan data historis: return, CAGR, drawdown, Sharpe, win rate, beta, vs **IHSG** & vs beli & tahan
 - 🔌 Arsitektur **adapter broker**: Paper Trading (aktif), Stockbit & Pluang (lihat batasan di bawah)
 - 🛡️ Pengaman: batas nilai order per % ekuitas, live trading mati secara default + konfirmasi per order
+- 🪙 **Crypto lewat Binance** (API resmi): harga real-time, grafik, order & auto-trading di akun simulasi USDT,
+  **Binance Spot Testnet**, atau akun Binance asli (terkunci secara default)
 
 ## Menjalankan
 
@@ -340,6 +342,39 @@ stop-loss/take-profit, cooldown, dan maks. posisi diperlakukan persis seperti bo
 Batasan: memakai candle harian, mengabaikan slippage, likuiditas/volume, ARA/ARB, dan antrean order.
 Hasil masa lalu tidak menjamin hasil masa depan. Waktu proses ±1–2 detik per saham untuk 2 tahun data.
 
+## 🪙 Crypto (Binance)
+
+Klik **Crypto** di header untuk beralih dari saham IDX ke pasar crypto. Semua lewat **API resmi
+Binance Spot** — aplikasi tidak pernah meminta password Binance.
+
+- **Harga & grafik real-time** dari endpoint publik Binance (tanpa API key): watchlist pasangan
+  (mis. `BTCUSDT`, `ETH/USDT`), harga diperbarui ±3 detik dengan kedipan naik/turun, candle 1 mnt–harian,
+  EMA 12/26, volume, sinyal teknikal dan penanda transaksi akun yang dipilih.
+- **Tiga akun** (pilih di form order):
+
+  | Akun | Uang | Yang dibutuhkan |
+  |---|---|---|
+  | Simulasi (USDT) | palsu, saldo awal `CRYPTO_PAPER_STARTING_USDT` | tidak ada |
+  | Binance Spot Testnet | palsu, di server Binance | `BINANCE_TESTNET_API_KEY/SECRET` dari [testnet.binance.vision](https://testnet.binance.vision) |
+  | Binance asli | **sungguhan** | `BINANCE_API_KEY/SECRET` + `ENABLE_LIVE_TRADING=true` + konfirmasi per order |
+
+- **Order** Market/Limit, jumlah dalam aset dasar (BTC) atau nilai (USDT). Jumlah dibulatkan ke `stepSize`,
+  harga ke `tickSize`, dan nilai minimal (`minNotional`) dicek — sama seperti aturan pasangan di Binance.
+  Fee simulasi `CRYPTO_FEE_PCT` (0,1%); di Binance fee yang tercatat adalah fee sebenarnya dari bursa.
+- **Auto-trading crypto** (tab *Auto-Trading Crypto*): strategi sinyal yang sama dengan bot saham, dengan
+  candle 15 mnt / 1 jam / 4 jam / harian, stop-loss, take-profit, cooldown, maks. posisi, dan **batas nilai
+  per order (USDT)**. Pasar crypto buka 24 jam, jadi tidak ada pengecekan jam bursa. Transaksi bot ikut
+  dikirim ke Telegram bila notifikasi transaksi aktif.
+- **Bot hanya mengelola posisi yang dibukanya sendiri** (dihitung dari order "auto" yang terisi): saldo lain
+  di akun Binance Anda tidak pernah ikut dijual. Di akun asli bot butuh `ENABLE_LIVE_TRADING=true`, batas nilai
+  per order > 0, dan konfirmasi saat mulai; tombol "Jalankan 1 siklus" dinonaktifkan.
+
+**Membuat API key Binance (akun asli) dengan aman:** aktifkan hanya *Enable Spot & Margin Trading*,
+**jangan** aktifkan izin withdraw, batasi ke IP komputer Anda, dan simpan di `.env` (jangan di-commit).
+Mulailah di Testnet. Bila `api.binance.com` tidak bisa diakses dari jaringan Anda, data pasar bisa
+diambil dari endpoint resmi khusus data `BINANCE_DATA_URL=https://data-api.binance.vision`. Pastikan
+juga layanan Binance boleh Anda gunakan di negara Anda.
+
 ## ⚠️ Tentang eksekusi order di Stockbit / Pluang
 
 Stockbit dan Pluang **tidak menyediakan API trading publik resmi** untuk nasabah ritel.
@@ -371,6 +406,9 @@ app/
   notifier.py        Notifikasi Telegram & pemantau sinyal
   webhooks.py        Penerima webhook alert TradingView
   price_feed.py      Price feed dari alert TradingView (skrip Pine, penyimpanan bar, provider pembungkus)
+  binance.py         Klien API resmi Binance Spot (data publik, request bertanda tangan, aturan simbol)
+  crypto.py          Akun simulasi crypto, broker Binance (Testnet/asli) & auto-trading crypto
+  crypto_api.py      Endpoint /api/crypto/*
   fundamentals.py    Parser laporan keuangan XBRL IDX & rasio fundamental
   fundamentals_taxonomy.csv  Pemetaan akun → tag XBRL
   brokers/
@@ -414,6 +452,15 @@ tests/               Unit & API test
 | GET | `/api/feed` | Status price feed TradingView per saham |
 | PUT | `/api/feed/config` | Aktif/nonaktif, daftar saham, batas data basi |
 | GET | `/api/feed/pine` | Skrip Pine siap salin (memuat kode rahasia) |
+| GET | `/api/crypto/config` | Status akun crypto (simulasi / testnet / binance) |
+| GET | `/api/crypto/quote/{pasangan}` | Harga 24 jam + aturan Binance (stepSize, tickSize, minNotional) |
+| GET | `/api/crypto/chart/{pasangan}?interval=1h&broker=paper` | Candle, EMA, sinyal & penanda transaksi |
+| GET | `/api/crypto/account?broker=paper` | Saldo & aset (dinilai dalam USDT) |
+| GET/POST | `/api/crypto/orders` | Riwayat / kirim order (`quantity` atau `quote_amount`; `confirm_live` untuk akun asli) |
+| DELETE | `/api/crypto/orders/{id}?broker=` | Batalkan order OPEN |
+| POST | `/api/crypto/paper/reset` | Reset simulasi crypto |
+| GET/PUT | `/api/crypto/autotrader` · `/config` | Status & pengaturan bot crypto |
+| POST | `/api/crypto/autotrader/start` · `/stop` · `/run-once` | Kendalikan bot crypto |
 | POST | `/api/backtest` | Jalankan backtest (`symbols`, `period`, `initial_cash`, `execution`, `strategy`) — hasil disimpan |
 | GET | `/api/backtests` · `/api/backtests/{id}` | Riwayat backtest / hasil lengkap satu backtest |
 | DELETE | `/api/backtests/{id}` | Hapus backtest dari riwayat |

@@ -297,3 +297,65 @@ def test_yearly_api(tmp_path):
     assert c.put("/api/notifications/config", json={"yearly_time": "99:00"}).status_code == 400
     st = c.post("/api/notifications/report?period=yearly").json()
     assert st["history"][0]["message"] == "Laporan tahunan portofolio terkirim" and st["yearly_last_sent"]
+
+
+WED_3009 = datetime(2026, 9, 30, 16, 48, tzinfo=WIB).timestamp()
+
+
+class QuarterHistory(Prices):
+    """Candle harian 1/5 … 30/9/2026: penutupan s/d 30/6 = `jun_close`, sesudahnya = harga sekarang."""
+
+    def __init__(self, jun_close, **p):
+        super().__init__(**p)
+        self.jun_close = jun_close
+
+    def candles(self, symbol, range_="2y", interval="1d"):
+        from app.market_data import Candle
+        out = []
+        for i in range(153):
+            d = datetime(2026, 5, 1, 9, 0, tzinfo=WIB) + timedelta(days=i)
+            close = self.jun_close[symbol] if d.month <= 6 else self.p[symbol][0]
+            out.append(Candle(int(d.timestamp()), close, close, close, close, 0))
+        return out
+
+
+def test_quarterly_schedule_and_content(env):
+    from app.daily_report import signed_rp
+    rep, watcher, paper, _, _, tg, clock = env
+    rep.provider = QuarterHistory({"BBCA": 8500, "TLKM": 4000, "IHSG": 7000.0},
+                                  BBCA=(9050, 9000), TLKM=(3800, 3850), IHSG=(7123.45, 7100.0))
+    clock["t"] = WED_3009 - 3600  # order terisi 30/09 (dalam kuartal III); order BBCA fixture 07/10 di luar
+    paper.place_order(Order("TLKM", Side.BUY, 5, OrderType.MARKET, created_at=clock["t"]), 3850)
+    watcher.update_config({"report_enabled": False, "quarterly_enabled": True})
+    assert rep.next_quarterly().startswith("hari terakhir tiap kuartal") and rep.next_quarterly().endswith("16:48 WIB")
+    for day, equity in [("2026-06-30", 100_000_000), ("2026-07-31", 101_000_000), ("2026-08-14", 103_000_000),
+                        ("2026-08-31", 102_000_000)]:
+        rep._save_snapshot("idx", day, equity)
+    clock["t"] = datetime(2026, 8, 31, 16, 48, tzinfo=WIB).timestamp()  # akhir bulan, bukan akhir kuartal
+    assert not rep.quarterly_due()
+    clock["t"] = WED_3009
+    assert [e["message"] for e in rep.run_due()] == ["Laporan kuartalan portofolio terkirim"]
+    text = tg.sent[-1]["text"]
+    assert "Laporan kuartalan portofolio — Q3 2026</b> (Jul–Sep)" in text
+    assert "01/07 s/d 30/09/2026 · dibanding akhir kuartal lalu (30/06/2026)" in text
+    equity = paper.account({"BBCA": 9050, "TLKM": 3800})["equity"]
+    assert f"({signed_rp(equity - 100_000_000)} / " in text and "sejak 30/06)" in text
+    assert "Tertinggi Rp103.000.000 (14/08)" in text
+    assert "Per bulan: Jul +1,00% · Agu +0,99% · Sep " in text
+    assert "perubahan harga kuartal ini" in text and "• BBCA 10 lot · 9.050 (+6,47%)" in text
+    assert "Terbaik: BBCA +6,47% · Terburuk: TLKM -5,00%" in text
+    assert "Transaksi kuartal ini: 1 beli, 0 jual" in text and "IHSG: 7.123,45 (+1,76% kuartal ini)" in text
+    assert rep.run_due() == []  # sekali per kuartal
+
+
+def test_quarterly_api(tmp_path):
+    tg = FakeTelegram()
+    c = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider(), telegram_http=tg.client()))
+    text = c.get("/api/notifications/report/preview?period=quarterly").json()["text"]
+    assert "Laporan kuartalan portofolio — Q4 2026" in text and "(Okt–Des)" in text
+    st = c.put("/api/notifications/config", json={"bot_token": TOKEN, "chat_id": "42", "quarterly_enabled": True,
+                                                  "quarterly_time": "17:0"}).json()
+    assert st["quarterly_schedule"].endswith("17:00 WIB")
+    assert c.put("/api/notifications/config", json={"quarterly_time": "x"}).status_code == 400
+    st = c.post("/api/notifications/report?period=quarterly").json()
+    assert st["history"][0]["message"] == "Laporan kuartalan portofolio terkirim" and st["quarterly_last_sent"]

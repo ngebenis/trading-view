@@ -54,6 +54,19 @@ class MarketDataError(Exception):
     pass
 
 
+def aggregate_candles(bars: list[Candle], seconds: int) -> list[Candle]:
+    """Gabungkan bar berurutan menjadi bar `seconds` detik (mis. 1 menit -> 5 menit)."""
+    out: list[Candle] = []
+    for b in bars:
+        t = b.time // seconds * seconds
+        if out and out[-1].time == t:
+            p = out[-1]
+            out[-1] = Candle(t, p.open, max(p.high, b.high), min(p.low, b.low), b.close, p.volume + b.volume)
+        else:
+            out.append(Candle(t, b.open, b.high, b.low, b.close, b.volume))
+    return out
+
+
 class YahooProvider:
     """Endpoint chart Yahoo Finance (tidak resmi, tanpa API key)."""
 
@@ -214,17 +227,7 @@ class DemoProvider:
             out.append(Candle(start + m * 60, rnd(o), rnd(hi), rnd(lo), rnd(price), rng.randint(500, 20_000) * 100))
         return out
 
-    @staticmethod
-    def _aggregate(bars: list[Candle], seconds: int) -> list[Candle]:
-        out: list[Candle] = []
-        for b in bars:
-            t = b.time // seconds * seconds
-            if out and out[-1].time == t:
-                p = out[-1]
-                out[-1] = Candle(t, p.open, max(p.high, b.high), min(p.low, b.low), b.close, p.volume + b.volume)
-            else:
-                out.append(Candle(t, b.open, b.high, b.low, b.close, b.volume))
-        return out
+    _aggregate = staticmethod(aggregate_candles)
 
     def candles(self, symbol: str, range_: str = "6mo", interval: str = "1d") -> list[Candle]:
         sym = normalize_symbol(symbol)

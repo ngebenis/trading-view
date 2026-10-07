@@ -144,6 +144,14 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 1
 .kind-AUTH, .kind-SECURITY { color: var(--down); }
 #hookLog th, #hookLog td { text-align: left; }
 #hookLog td:nth-child(4) { white-space: normal; width: 100%; }
+/* price feed */
+.feed-section { margin-top: 20px; padding-top: 4px; border-top: 1px solid var(--border); }
+.pine-label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.pine-label textarea { width: 100%; box-sizing: border-box; resize: vertical; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+#feedTable th, #feedTable td { text-align: left; }
+.feed-state { font-weight: 600; } .feed-state.ok { color: var(--up); } .feed-state.stale { color: #b07d00; }
+.feed-state.none { color: var(--muted); font-weight: 400; }
 /* grafik Lightweight Charts */
 .chart-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .seg-sm { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }

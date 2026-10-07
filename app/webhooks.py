@@ -166,15 +166,18 @@ class TradingViewWebhook:
                           ensure_ascii=False).replace('"{{close}}"', "{{close}}")
 
     # ---- menerima alert ----------------------------------------------
-    def authenticate(self, payload: dict, query_secret: str | None) -> None:
-        if not self.config.enabled:
-            raise WebhookError("Webhook nonaktif", 403)
+    def check_secret(self, payload: dict, query_secret: str | None) -> None:
         given = str(payload.get("secret") or query_secret or "")
         if not given or not hmac.compare_digest(given.encode(), self.config.secret.encode()):
             raise WebhookError("Kode rahasia salah", 401)
 
-    def accept(self, body: bytes, query_secret: str | None = None) -> tuple[Alert, dict]:
-        """Validasi cepat (dijalankan sebelum membalas TradingView). Pemrosesan di `process`."""
+    def authenticate(self, payload: dict, query_secret: str | None) -> None:
+        if not self.config.enabled:
+            raise WebhookError("Webhook nonaktif", 403)
+        self.check_secret(payload, query_secret)
+
+    @staticmethod
+    def parse_body(body: bytes) -> dict:
         if len(body) > MAX_BODY:
             raise WebhookError("Pesan alert terlalu besar", 413)
         try:
@@ -183,6 +186,13 @@ class TradingViewWebhook:
             raise WebhookError("Isi alert harus JSON — salin template pesan dari tab Webhook") from None
         if not isinstance(payload, dict):
             raise WebhookError("Isi alert harus objek JSON")
+        return payload
+
+    def accept(self, body: bytes, query_secret: str | None = None,
+               payload: dict | None = None) -> tuple[Alert, dict]:
+        """Validasi cepat (dijalankan sebelum membalas TradingView). Pemrosesan di `process`."""
+        if payload is None:
+            payload = self.parse_body(body)
         self.authenticate(payload, query_secret)
         alert = parse_alert(payload)
         cfg = self.config

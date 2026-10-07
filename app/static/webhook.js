@@ -65,7 +65,11 @@
 
   async function regenerate() {
     if (!confirm("Ganti kode rahasia? Alert TradingView yang memakai kode lama akan ditolak sampai pesannya diperbarui.")) return;
-    try { render(await api("/api/webhooks/regenerate-secret", { method: "POST" })); msg("Kode rahasia diganti — perbarui pesan alert di TradingView"); }
+    try {
+      render(await api("/api/webhooks/regenerate-secret", { method: "POST" }));
+      msg("Kode rahasia diganti — perbarui pesan alert & skrip price feed di TradingView");
+      window.loadFeed?.(); // skrip Pine memuat kode rahasia
+    }
     catch (e) { msg(e.message, false); }
   }
 
@@ -92,6 +96,7 @@
   }
 
   function init() {
+    window.loadFeed?.();
     if (initialized) return load(true);
     initialized = true;
     $("#hookForm").onsubmit = save;

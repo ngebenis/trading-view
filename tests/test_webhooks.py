@@ -290,3 +290,14 @@ def test_api_wrong_secret_logs_ip(tmp_path):
     log = client.get("/api/webhooks").json()["log"]
     assert log[0]["kind"] == "AUTH" and "203.0.113.9" in log[0]["message"]
     assert client.get("/api/webhooks").json()["config"]["notify_security"] is True
+
+
+def test_api_distinct_alerts_are_not_deduplicated(tmp_path):
+    client = TestClient(create_app(Settings(data_dir=tmp_path), DemoProvider()))
+    client.put("/api/webhooks/config", json={"enabled": True, "mode": "log"})
+    secret = client.get("/api/webhooks").json()["config"]["secret"]
+    for sym in ("BBCA", "TLKM"):
+        r = client.post("/api/webhooks/tradingview", content=json.dumps({"secret": secret, "symbol": sym}))
+        assert r.status_code == 200, r.text
+    again = client.post("/api/webhooks/tradingview", content=json.dumps({"secret": secret, "symbol": "TLKM"}))
+    assert again.status_code == 409

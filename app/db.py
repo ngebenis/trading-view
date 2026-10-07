@@ -68,6 +68,19 @@ CREATE TABLE IF NOT EXISTS backtests (
     total_return_pct REAL,
     result      TEXT NOT NULL           -- JSON hasil lengkap
 );
+CREATE TABLE IF NOT EXISTS feed_bars (      -- bar dari price feed webhook TradingView
+    symbol      TEXT NOT NULL,
+    seconds     INTEGER NOT NULL,           -- panjang bar
+    time        INTEGER NOT NULL,           -- waktu buka (epoch detik)
+    open        REAL NOT NULL,
+    high        REAL NOT NULL,
+    low         REAL NOT NULL,
+    close       REAL NOT NULL,
+    volume      INTEGER NOT NULL,
+    prev_close  REAL,
+    received_at REAL NOT NULL,
+    PRIMARY KEY (symbol, seconds, time)
+);
 """
 
 ORDER_COLUMNS = ("id", "symbol", "side", "lots", "order_type", "limit_price", "status", "fill_price",
@@ -171,6 +184,25 @@ class Database:
     def prune_logs(self, keep_days: int = 180) -> int:
         with self._lock:
             return self.conn.execute("DELETE FROM logs WHERE time < ?", (time.time() - keep_days * 86400,)).rowcount
+
+    # ---- price feed TradingView --------------------------------------
+    def save_feed_bars(self, rows) -> None:
+        """rows: (simbol, detik, Candle, close kemarin, waktu terima)."""
+        with self._lock:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO feed_bars (symbol, seconds, time, open, high, low, close, volume, "
+                "prev_close, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(sym, sec, b.time, b.open, b.high, b.low, b.close, b.volume, pc, at) for sym, sec, b, pc, at in rows])
+
+    def load_feed_bars(self, since: float) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute("SELECT * FROM feed_bars WHERE time >= ? ORDER BY symbol, received_at, time",
+                                     (since,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def prune_feed_bars(self, before: float) -> int:
+        with self._lock:
+            return self.conn.execute("DELETE FROM feed_bars WHERE time < ?", (before,)).rowcount
 
     # ---- backtest ----------------------------------------------------
     def save_backtest(self, result: dict) -> int:

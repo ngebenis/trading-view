@@ -212,6 +212,48 @@
         <code>"mode"</code> di pesan bersifat opsional. Alert yang sama dalam 60 detik diabaikan.</p>
       <h2>Alert masuk</h2>
       <div class="table-wrap"><table id="hookLog"></table></div>
+
+      <section id="feedSection" class="feed-section">
+        <div class="auto-head">
+          <div>
+            <b>Price feed dari TradingView</b>
+            <div id="feedStatus" class="muted"></div>
+          </div>
+          <div class="auto-actions">
+            <button id="feedToggle" type="button" class="primary buy">Aktifkan</button>
+          </div>
+        </div>
+        <details id="feedGuide" class="note guide">
+          <summary>Cara memasang (harga dikirim TradingView lewat webhook, tanpa login dari aplikasi)</summary>
+          <ol>
+            <li>Isi daftar saham di bawah lalu <b>Simpan</b>. Skrip Pine di bawahnya ikut diperbarui.</li>
+            <li>Di TradingView buka <b>Pine Editor</b>, tempel skrip, <b>Save</b>, lalu <b>Add to chart</b>. Pakai grafik
+              <b>1 menit</b> saham yang ramai (mis. IDX:BBCA): alert terkirim setiap bar grafik ini ditutup.</li>
+            <li>Buat alert: <b>Condition</b> = "IDX Trading View price feed", pilih <b>Any alert() function call</b>,
+              centang <b>Webhook URL</b> dan isi alamat webhook yang sama seperti di atas. Kolom Message tidak dipakai.</li>
+            <li>Klik <b>Aktifkan</b>. Saat bursa buka, tabel di bawah menunjukkan harga yang masuk tiap menit.</li>
+          </ol>
+          <p>Syarat: paket TradingView yang mendukung webhook, dan langganan data real-time IDX di TradingView agar harga tidak
+            tertunda. Bila feed berhenti lebih lama dari batas di bawah, aplikasi otomatis kembali ke sumber data biasa.
+            Skrip memuat kode rahasia webhook — jangan dipublikasikan; bila kode rahasia diganti, salin ulang skripnya.</p>
+        </details>
+        <form id="feedForm" class="auto-form">
+          <label class="wide"><span>Saham yang dikirim (maks. <span id="feedMax">20</span>, pisahkan dengan koma; IHSG boleh)</span>
+            <span class="inline"><input name="symbols" placeholder="BBCA, BBRI, TLKM, IHSG">
+              <button id="feedUseWatchlist" type="button">Pakai watchlist</button></span>
+          </label>
+          <label>Data dianggap basi setelah (detik)<input name="stale_seconds" type="number" min="60" max="3600" step="10"></label>
+          <div class="wide auto-save">
+            <button class="primary">Simpan</button>
+            <span id="feedMsg" class="msg"></span>
+          </div>
+        </form>
+        <label class="pine-label"><span>Skrip Pine untuk TradingView</span>
+          <textarea id="feedPine" readonly rows="10" spellcheck="false"></textarea>
+          <span class="inline"><button type="button" id="feedCopy">Salin skrip</button></span>
+        </label>
+        <div class="table-wrap"><table id="feedTable"></table></div>
+      </section>
     </div>
     <div id="fundPane" class="hidden">
       <div class="auto-head">
@@ -370,5 +412,6 @@
   <script src="/static/notifications.js"></script>
   <script src="/static/fundamentals.js"></script>
   <script src="/static/webhook.js"></script>
+  <script src="/static/feed.js"></script>
 </body>
 </html>

@@ -201,6 +201,7 @@
         <label>Ukuran BELI (% ekuitas)<input name="position_pct" type="number" step="0.5" min="0.5"></label>
         <label>Maks. lot per alert<input name="max_lots" type="number" min="1"></label>
         <label class="wide">Simbol yang diizinkan (kosong = semua)<input name="allowed_symbols" placeholder="BBCA, TLKM"></label>
+        <label class="check wide"><input name="notify_security" type="checkbox"> Kabari Telegram bila ada alert dengan kode rahasia salah (maks. 1 pesan / 10 menit)</label>
         <div class="wide auto-save">
           <button class="primary">Simpan pengaturan</button>
           <span id="hookMsg" class="msg"></span>

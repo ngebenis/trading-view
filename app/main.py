@@ -398,6 +398,13 @@ def create_app(settings: Settings = default_settings, provider=None, telegram_ht
         try:
             alert, entry = webhook.accept(await request.body(), secret)
         except WebhookError as exc:
+            if exc.status == 401:  # kode rahasia salah: catat & (bila perlu) kabari Telegram
+                ip = (request.headers.get("cf-connecting-ip")
+                      or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                      or (request.client.host if request.client else ""))
+                background.add_task(webhook.report_auth_failure, ip)
+                return JSONResponse({"ok": False, "detail": str(exc)}, status_code=exc.status,
+                                    background=background)
             return JSONResponse({"ok": False, "detail": str(exc)}, status_code=exc.status)
         # Balas TradingView secepatnya (batas waktunya ~3 detik); aksi dijalankan setelahnya.
         background.add_task(webhook.process, alert)

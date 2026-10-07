@@ -219,6 +219,26 @@ gagal); BELI tanpa `lots` memakai % ekuitas; dibatasi *maks. lot per alert* dan 
 JUAL menjual posisi yang ada (semua bila tanpa `lots`); indeks tidak dieksekusi. Alert identik
 dalam 60 detik diabaikan. Order dari webhook ditandai **📡 webhook** di riwayat order.
 
+**Notifikasi Telegram.** Dengan aksi "Kirim ke Telegram" atau "Telegram + order simulasi" (Telegram
+diatur di tab **Notifikasi**), setiap alert dikirim ke Telegram berisi: sinyal & pesan alert, harga
+terkini (% hari ini dan selisih dari harga di alert), batas ARB/ARA (dengan tanda bila sedang ARA/ARB),
+hasil order (✅ berhasil / ❌ ditolak beserta alasannya / ⏭ dilewati), ringkasan posisi setelah order
+(lot, harga rata-rata, P/L), serta link TradingView & Stockbit. Contoh:
+
+```
+🟢 Alert TradingView — BBCA
+Sinyal: BELI @ 9.025 — EMA cross
+Harga terkini: 9.050 (+0,56% hari ini) · +0,28% dari harga alert
+ARB 7.650 · ARA 10.800
+✅ Order simulasi: BUY 11 lot @ 9.050 (simulasi)
+Posisi: 11 lot · avg 9.050 · P/L +Rp0 (+0,00%)
+TradingView · Stockbit
+```
+
+Alert dengan **kode rahasia salah** dicatat di log (jenis *DITOLAK*, beserta IP pengirim) dan
+memicu **peringatan keamanan** ke Telegram — maksimal satu pesan per 10 menit, berisi jumlah
+percobaan & IP. Bisa dimatikan di tab Webhook.
+
 **Keamanan.** TradingView tidak bisa mengirim header khusus, jadi alert diautentikasi dengan
 kode rahasia di isi pesan (bisa diganti kapan saja di tab Webhook). Karena aplikasi dibuka lewat
 tunnel, ada pengaman bawaan (`LOCAL_ONLY_GUARD=true`): request yang datang lewat tunnel/proxy

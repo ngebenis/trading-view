@@ -5,7 +5,8 @@
   let current = null;
 
   const msg = (text, ok = true) => { $("#hookMsg").className = "msg " + (ok ? "ok" : "err"); $("#hookMsg").textContent = text; };
-  const LABELS = { RECEIVED: "MASUK", ORDER: "ORDER", NOTIFY: "TELEGRAM", SKIP: "LEWATI", ERROR: "GAGAL" };
+  const LABELS = { RECEIVED: "MASUK", ORDER: "ORDER", NOTIFY: "TELEGRAM", SKIP: "LEWATI", ERROR: "GAGAL",
+                   AUTH: "DITOLAK", SECURITY: "KEAMANAN" };
 
   function render(st, fillForm = false) {
     current = st;
@@ -27,6 +28,7 @@
       f.elements.position_pct.value = c.position_pct;
       f.elements.max_lots.value = c.max_lots;
       f.elements.allowed_symbols.value = c.allowed_symbols.join(", ");
+      f.elements.notify_security.checked = c.notify_security;
       $("#hookGuide").open = !c.enabled;
     }
     $("#hookLog").innerHTML = `<tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Keterangan</th></tr>` +
@@ -48,6 +50,7 @@
       position_pct: Number(f.elements.position_pct.value),
       max_lots: Number(f.elements.max_lots.value),
       allowed_symbols: f.elements.allowed_symbols.value.split(",").map(cleanSymbol).filter(Boolean),
+      notify_security: f.elements.notify_security.checked,
     };
     try { render(await api("/api/webhooks/config", { method: "PUT", body: JSON.stringify(body) }), true); msg("Tersimpan"); }
     catch (e) { msg(e.message, false); }

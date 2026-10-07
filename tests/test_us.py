@@ -148,3 +148,39 @@ def test_live_account_is_locked(tmp_path):
     assert r.status_code == 400 and "melebihi batas akun live" in r.json()["detail"]
     assert not any(q[0] == "POST" for q in fake.requests)
     assert c.post("/api/us/orders", json={**body, "confirm_live": True}).status_code == 200
+
+
+# ---- alert harga Telegram untuk saham AS ------------------------------------
+def test_us_price_alert_triggers_telegram(env):
+    c, app, fake, tg = env
+    r = c.post("/api/alerts", json={"symbol": "aapl", "market": "us", "target": 240, "note": "resistance"})
+    assert r.status_code == 200
+    a = r.json()["alerts"][0]
+    assert (a["symbol"], a["market"], a["direction"], a["created_price"]) == ("AAPL", "us", "above", 230.0)
+    n = len(tg.sent)
+    assert c.post("/api/alerts/check").json()["fired"] == []  # belum tembus
+    assert len(tg.sent) == n
+    fake.prices["AAPL"] = 241.5
+    fake.prev["AAPL"] = 230.0
+    app.state.us["provider"]._cache.clear()
+    fired = c.post("/api/alerts/check").json()["fired"]
+    assert len(fired) == 1 and fired[0]["kind"] == "TARGET"
+    msg = tg.sent[-1]["text"]
+    assert "AAPL naik tembus $240,00" in msg and "Harga: <b>$241,50</b> (+5,00% hari ini)" in msg
+    assert "Catatan: resistance" in msg and "tradingview.com/symbols/AAPL" in msg and "finance.yahoo.com/quote/AAPL" in msg
+    assert c.get("/api/alerts").json()["alerts"][0]["status"] == "triggered"
+
+
+def test_us_alert_validation_and_separation_from_idx(env):
+    c, app, fake, tg = env
+    assert c.post("/api/alerts", json={"symbol": "BBCA.JK", "market": "us", "target": 10}).status_code == 400
+    assert c.post("/api/alerts", json={"symbol": "ZZZZ", "market": "us", "target": 10}).status_code == 400  # tak ada data
+    assert c.post("/api/alerts", json={"symbol": "AAPL", "market": "us", "target": 230}).status_code == 400  # = harga
+    assert c.post("/api/alerts", json={"symbol": "AAPL", "market": "us", "target": 100,
+                                       "direction": "above"}).status_code == 400  # sudah di atas
+    assert c.post("/api/alerts", json={"symbol": "AAPL", "market": "dax", "target": 10}).status_code == 400
+    # tanpa market, kode yang sama dibaca sebagai saham IDX (DemoProvider), bukan saham AS
+    r = c.post("/api/alerts", json={"symbol": "BBCA", "target": 99999}).json()
+    assert r["alerts"][0]["market"] == "idx"
+    brk = c.post("/api/alerts", json={"symbol": "brk-b", "market": "us", "target": 500}).json()
+    assert any(a["symbol"] == "BRK.B" and a["market"] == "us" for a in brk["alerts"])

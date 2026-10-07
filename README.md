@@ -561,9 +561,10 @@ ALPACA_PAPER_API_SECRET=...
 | Akun live | Uang sungguhan: isi `ALPACA_LIVE_API_KEY/SECRET`, set `ENABLE_LIVE_TRADING=true`, dan setiap order butuh konfirmasi. Nilai satu order dibatasi `US_MAX_ORDER_USD` (bawaan $1.000) |
 | Batas risiko | Order beli tidak boleh melebihi `US_MAX_POSITION_PCT` (bawaan 20%) dari ekuitas |
 | Telegram | Order manual (terisi, limit dipasang/terisi, ditolak, dibatalkan) ikut dikirim bila *Order manual* aktif di tab Notifikasi |
+| Alert harga | Kotak **Alert harga → Telegram** di panel order saham AS: pasang target (naik/turun tembus, sekali atau berulang), garis target tampil di grafik, dan semua alert terkumpul di tab Notifikasi. Harga dicek tiap `PRICE_ALERT_SECONDS`; di luar jam bursa harga tidak berubah sehingga alert tidak terpicu |
 | Jam bursa | 09:30–16:00 waktu New York (Alpaca `/v2/clock`, termasuk hari libur; bila belum ada API key dipakai perkiraan lokal). Order market di luar jam bursa menunggu pembukaan |
 
-Belum tersedia untuk saham AS: auto-trading, alert harga & laporan portofolio Telegram (hanya saham IDX dan crypto).
+Belum tersedia untuk saham AS: auto-trading dan laporan portofolio Telegram (hanya saham IDX dan crypto).
 Mata uang & lot berbeda dari IDX: harga dalam USD, tanpa lot, ARA/ARB, atau fee (Alpaca tidak memungut komisi saham AS;
 biaya regulasi kecil pada penjualan tidak disimulasikan).
 
@@ -651,7 +652,7 @@ tests/               Unit & API test
 | POST | `/api/webhooks/regenerate-secret` | Ganti kode rahasia |
 | POST | `/api/notifications/report?period=daily\|weekly\|monthly\|quarterly\|semiannual\|yearly` | Kirim laporan portofolio sekarang |
 | GET | `/api/notifications/report/preview?period=daily\|weekly\|monthly\|quarterly\|semiannual\|yearly` | Contoh isi laporan (HTML Telegram) |
-| GET/POST | `/api/alerts` | Daftar / pasang alert harga (`symbol`, `target`, `note`, `repeat`) |
+| GET/POST | `/api/alerts` | Daftar / pasang alert harga (`symbol`, `target`, `note`, `repeat`, `market`: `idx`/`crypto`/`us`; kosong = IDX atau crypto otomatis) |
 | DELETE | `/api/alerts/{id}` | Hapus alert |
 | POST | `/api/alerts/{id}/rearm` · `/api/alerts/check` | Aktifkan lagi alert / periksa sekarang |
 | GET | `/api/feed` | Status price feed TradingView per saham |

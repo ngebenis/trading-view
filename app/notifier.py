@@ -118,6 +118,12 @@ def crypto_links(symbol: str) -> str:
             f'<a href="https://www.tradingview.com/symbols/{symbol}/?exchange=BINANCE">TradingView</a>')
 
 
+def us_links(symbol: str) -> str:
+    slug = symbol.replace(".", "-")
+    return (f'<a href="https://www.tradingview.com/symbols/{slug}/">TradingView</a> · '
+            f'<a href="https://finance.yahoo.com/quote/{slug}">Yahoo Finance</a>')
+
+
 def _pct(x: float) -> str:
     return f"{x:+.2f}%".replace(".", ",")
 
@@ -167,8 +173,7 @@ def format_order(o: dict, event: str, market: str, account: str, position: dict 
         at = f" @ ${usdt(price)}" if price else ""
         value = f" (${usdt(qty * price)})" if price and qty else ""
         fee = ""
-        links = (f'<a href="https://www.tradingview.com/symbols/{sym.replace(".", "-")}/">TradingView</a> · '
-                 f'<a href="https://finance.yahoo.com/quote/{sym.replace(".", "-")}">Yahoo Finance</a>')
+        links = us_links(sym)
     elif market == "crypto":
         from .crypto import price_str, qty_str, usdt
         base, quote = split_pair(sym) or (sym, "")
@@ -289,6 +294,7 @@ class SignalWatcher:
                  http: httpx.Client | None = None, clock=time.time):
         self.provider = provider
         self.crypto_provider = None  # BinanceProvider, dipasang oleh register_crypto
+        self.us_provider = None      # AlpacaProvider, dipasang oleh register_us
         self.reporter = None  # DailyReporter, dipasang oleh create_app
         self.db = db  # app.db.Database atau None
         self.env_token, self.env_chat_id = env_token, env_chat_id

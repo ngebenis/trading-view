@@ -57,7 +57,11 @@
     t.querySelectorAll("[data-rearm]").forEach((b) => b.onclick = () => act(`/api/alerts/${b.dataset.rearm}/rearm`, "POST"));
   }
 
-  const renderAll = () => { boxes.forEach(renderBox); renderTable(); };
+  const renderAll = () => {
+    boxes.forEach(renderBox);
+    renderTable();
+    window.dispatchEvent(new CustomEvent("alerts-changed"));  // grafik menggambar ulang garis target
+  };
 
   function msg(form, text, ok = true) {
     const el = form?.querySelector(".msg");
@@ -101,4 +105,22 @@
   setInterval(() => { if (!document.hidden) load(); }, 20_000);  // status terpicu/aktif dari server
   setInterval(() => boxes.forEach(renderBox), 2_000);            // ikut saham/pasangan yang sedang dibuka
   window.reloadAlerts = load;
+  // Alert aktif untuk satu simbol (dipakai grafik saham & crypto untuk garis target).
+  window.activeAlertsFor = (sym) => (status?.alerts || []).filter((a) => a.symbol === sym && a.status === "active");
+  // Garis target + perluasan skala harga agar target yang dekat (±25% dari harga terakhir) tetap terlihat.
+  window.alertPriceLines = (series, sym, lastPrice, color, LWC, format) => {
+    const alerts = window.activeAlertsFor(sym);
+    const lines = alerts.map((a) => series.createPriceLine({
+      price: a.target, color, lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true,
+      title: `🎯 ${a.direction === "above" ? "▲" : "▼"}${a.note ? " " + a.note.slice(0, 18) : ""}`,
+    }));
+    const near = lastPrice ? alerts.map((a) => a.target).filter((t) => Math.abs(t / lastPrice - 1) <= 0.25) : [];
+    series.applyOptions({ autoscaleInfoProvider: (original) => {
+      const r = original();
+      if (!r || !r.priceRange || !near.length) return r;
+      return { ...r, priceRange: { minValue: Math.min(r.priceRange.minValue, ...near),
+                                   maxValue: Math.max(r.priceRange.maxValue, ...near) } };
+    } });
+    return lines;
+  };
 })();
